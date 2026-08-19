@@ -75,6 +75,10 @@ tbody tr:last-child{border-bottom:0}
 .back{font-size:12.5px;color:var(--ink2);white-space:nowrap}
 .back b{color:var(--ink);font-weight:700}
 .back.dg,.back.dg b{color:var(--danger);font-weight:700}
+/* 採用率が低い技が最大打点になる場合の補足。主表示は主要技のままにして、こちらは控えめに出す */
+.rare{font-size:11px;color:var(--ink3);font-weight:600;white-space:nowrap}
+.rare b{color:var(--ink2);font-weight:700}
+.rare.hot,.rare.hot b{color:#c9808a}
 .ohko{font-size:11px;color:var(--rng);font-weight:700}
 .note{color:var(--ink3);font-size:12px;padding:6px var(--pad) 0;max-width:1400px;margin:0 auto;line-height:1.65}
 .card.hide{display:none}

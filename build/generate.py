@@ -20,7 +20,7 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES,
-                   THREAT_RANK_LIMIT, SPREAD_THRESHOLD)
+                   THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
 
 STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
 STAT_LETTERS = ['H', 'A', 'B', 'C', 'D', 'S']
@@ -296,6 +296,10 @@ def build_threats():
             st = stats(d['base'], [sps[k] for k in STAT_KEYS], nature)
             moves_raw = translate_moves(entry, display_name, missing_moves, translation_warnings)
             moves_ja = [x.split(' (')[0] for x in moves_raw]
+            # 被弾の計算で「主要技か低採用技か」を分けるために採用率を持っておく
+            moves_use = [(x.split(' (')[0],
+                          float(x.split(' (')[1].rstrip('%)')) if ' (' in x else 0.0)
+                         for x in moves_raw]
 
             variants = [(h, p)
                         for h in ([True, False] if has_multiscale else [None])
@@ -310,7 +314,7 @@ def build_threats():
                     speed=int(st[5] * (1.5 if scarf >= 50 else 1)), scarf=scarf >= 50,
                     item=ITEM_JA.get(entry['items'][0]['name'], entry['items'][0]['name'])
                     if entry['items'] else '',
-                    moves_ja=moves_ja, moves_raw=moves_raw,
+                    moves_ja=moves_ja, moves_raw=moves_raw, moves_use=moves_use,
                 ))
 
     if unresolved_pokemon or unresolved_region or missing_moves:
@@ -412,8 +416,8 @@ def their_hit(threat, member):
     残りは extra（その他補正）。順番を変えると乱数判定が1〜2ずれる。
     防御側（自軍）の特性は今のパーティに軽減特性が無いので見ていない。"""
     ability = ABILITY_JA.get(threat['ability'], threat['ability']) or ''
-    best = None
-    for mv in threat['moves_ja'][:8]:
+    main, rare = [], []
+    for mv, usage in threat['moves_use'][:8]:
         m = MOVES.get(mv)
         if not m or not m['power']:
             continue
@@ -437,13 +441,28 @@ def their_hit(threat, member):
             stab = 1.5 if m['type'] in threat['types'] else 1.0
 
         t = eff(m['type'], *member['types'])
+        if t == 0:
+            continue    # タイプ無効。damage() は最低1を返すので、ここで落とさないと
+                        # 「じしん 1%」のような通らない技が主表示になってしまう
         dfn = member['st'][2] if m['cat'] == '物理' else member['st'][4]
         lo, hi = damage(power, atk, dfn, stab, t, extra)
-        if not best or hi > best['hi']:
-            best = dict(move=mv, lo=lo, hi=hi,
-                        pl=round(lo * 100 / member['st'][0]),
-                        ph=round(hi * 100 / member['st'][0]))
-    return best or dict(move='—', lo=0, hi=0, pl=0, ph=0)
+        cand = dict(move=mv, lo=lo, hi=hi, usage=usage,
+                    pl=round(lo * 100 / member['st'][0]),
+                    ph=round(hi * 100 / member['st'][0]))
+        (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)
+
+    # 主表示は採用率が閾値を超える技の中での最大打点。低採用の技しか無いポケモンだけ、
+    # 仕方なくそちらを使う（何も出ないと被弾が空欄になってしまうため）。
+    pool = main or rare
+    if not pool:
+        return dict(move='—', lo=0, hi=0, pl=0, ph=0)
+    best = max(pool, key=lambda x: x['hi'])
+    # 低採用の技が主要技を上回るときだけ、補足として持たせる
+    if main and rare:
+        top_rare = max(rare, key=lambda x: x['hi'])
+        if top_rare['hi'] > best['hi']:
+            best = dict(best, rare=top_rare)
+    return best
 
 
 def choose_move(hits):
@@ -499,6 +518,14 @@ def render_row(member, threat, hp_eff, row_class=''):
     vclass, vcolor = VERDICT_CLASS.get(primary['verdict'], ('v5', 'var(--weak)'))
     back = their_hit(threat, member)
     danger = ' dg' if back['ph'] >= 100 else ''
+    # 低採用の技が主要技を上回るときだけ補足を出す。赤字（確定1発される）判定は
+    # 主要技の方で決める。滅多に来ない技で身構えないための切り分け。
+    back_sub = ''
+    if back.get('rare'):
+        r = back['rare']
+        cls = 'rare hot' if r['ph'] >= 100 else 'rare'
+        back_sub = (f'<div class="{cls}">低採用 <b>{r["move"]}</b>'
+                    f'（{r["usage"]:.0f}%） {r["ph"]}%</div>')
     faster = member['speed'] > threat['speed']
 
     tags = ''
@@ -540,7 +567,7 @@ def render_row(member, threat, hp_eff, row_class=''):
         f'<td class="barcell">{bar(primary["pl"], primary["ph"], vcolor)}</td>'
         f'<td class="vdcell"><span class="vd {vclass}">{primary["verdict"]}</span></td>'
         f'<td class="pct">{primary["pl"]}-{primary["ph"]}%</td>'
-        f'<td class="back{danger}">被弾 <b>{back["move"]}</b> {back["ph"]}%</td></tr>')
+        f'<td class="back{danger}">被弾 <b>{back["move"]}</b> {back["ph"]}%{back_sub}</td></tr>')
 
 
 def render_card(threat, members, card_id):
