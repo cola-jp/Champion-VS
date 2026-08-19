@@ -19,6 +19,7 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     PokemonNotFoundError, RegionFormError,
                     stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
+                   CONTACT_MOVES, NON_CONTACT_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD)
 
 STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
@@ -96,14 +97,18 @@ ABILITY_HANDLING = {
     'どくげしょう': '影響なし: 被弾時のどくびし設置',
     'かたやぶり': '影響なし: 相手側が持っていても、こちらの防御特性は元々計算に入れていない',
 
-    # --- 相手の攻撃を強める特性。their_hit() は相手の特性を見ないので被弾が過小評価になる ---
-    'かたいツメ': '未反映: 接触技1.3倍。被弾がその分低く出る',
-    'ちからもち': '未反映: 物理の威力2倍。被弾がその分低く出る',
-    'てきおうりょく': '未反映: タイプ一致が2.0倍。被弾がその分低く出る',
-    'テクニシャン': '未反映: 威力60以下が1.5倍。被弾がその分低く出る',
-    'きれあじ': '未反映: 斬撃技1.5倍。被弾がその分低く出る',
-    'へんげんじざい': '未反映: 常にタイプ一致が乗る。被弾がその分低く出る',
-    'きもったま': '未反映: ノーマル・かくとうがゴーストに通る。今のパーティに該当なし',
+    # --- their_hit() で反映済み（相手の攻撃特性。被弾に効く） ---
+    'かたいツメ': '反映済み: 接触技1.3倍。接触判定は party.CONTACT_MOVES',
+    'ちからもち': '反映済み: 物理の攻撃2倍',
+    'ヨガパワー': '反映済み: 物理の攻撃2倍',
+    'てきおうりょく': '反映済み: タイプ一致が2.0倍',
+    'テクニシャン': '反映済み: 威力60以下が1.5倍',
+    'きれあじ': '反映済み: 斬撃技1.5倍。対象は party.SLASH_MOVES',
+    'へんげんじざい': '反映済み: 発動・未発動で行を2つに分ける',
+    'リベロ': '反映済み: へんげんじざいと同じ扱い',
+
+    # --- 未反映（影響はあるが入れていない） ---
+    'きもったま': '未反映: ノーマル・かくとうがゴーストに通る。今のパーティにゴーストが居ない',
     'バトルスイッチ': '未反映: 攻撃時に形態が変わり実数値が動く（ギルガルド）',
 
     # --- 条件付き。積みや天候と同じ扱いで、素の値を出す方針から外している ---
@@ -211,19 +216,32 @@ def check_abilities(rows):
     ability_mod() と同じく部分一致で照合する。
     未分類が出たら、その特性を計算に入れるかどうか判断されないまま表が出てしまうので警告する。"""
     unknown = {}
+    unclassified_contact = {}
     for r in rows:
         ability = ABILITY_JA.get(r['ability'], r['ability']) or ''
-        if any(k in ability for k in ABILITY_HANDLING):
-            continue
-        unknown.setdefault(ability, set()).add(r['name'])
-    if not unknown:
-        return
-    print('警告: 計算に入れるか未判断の特性があります'
-          '（build/generate.py の ABILITY_HANDLING に追記してください）:')
-    for ability, names in sorted(unknown.items()):
-        effect = ABILITIES.get(ability, '（data/abilities_ja.json に説明なし）')
-        print(f'  {ability} — {effect}')
-        print(f'    該当: {"、".join(sorted(names))}')
+        if not any(k in ability for k in ABILITY_HANDLING):
+            unknown.setdefault(ability, set()).add(r['name'])
+        # かたいツメは接触技だけ1.3倍。接触かどうか分からない技があると、
+        # 黙って等倍に落として被弾を低く見せてしまうので拾っておく。
+        if 'かたいツメ' in ability:
+            for mv in r['moves_ja'][:8]:
+                m = MOVES.get(mv)
+                if m and m['power'] and mv not in CONTACT_MOVES and mv not in NON_CONTACT_MOVES:
+                    unclassified_contact.setdefault(mv, set()).add(r['name'])
+
+    if unknown:
+        print('警告: 計算に入れるか未判断の特性があります'
+              '（build/generate.py の ABILITY_HANDLING に追記してください）:')
+        for ability, names in sorted(unknown.items()):
+            effect = ABILITIES.get(ability, '（data/abilities_ja.json に説明なし）')
+            print(f'  {ability} — {effect}')
+            print(f'    該当: {"、".join(sorted(names))}')
+
+    if unclassified_contact:
+        print('警告: かたいツメ持ちが使う技のうち、接触かどうか未分類のものがあります'
+              '（build/party.py の CONTACT_MOVES / NON_CONTACT_MOVES に追記してください）:')
+        for mv, names in sorted(unclassified_contact.items()):
+            print(f'  {mv} — 該当: {"、".join(sorted(names))}')
 
 
 def build_threats():
@@ -270,16 +288,24 @@ def build_threats():
             ability = (d['ab'] if display_name.startswith('メガ')
                        else max(entry['abilities'], key=lambda x: x['usage'])['name'])
             has_multiscale = 'マルチスケイル' in (d['ab'] or '') or 'multiscale' in (ability or '')
+            # へんげんじざいは「発動して一致が乗る」場合と「発動していない（＝不一致技を撃つ）」
+            # 場合で被弾が変わる。マルチスケイルと同じく行を2つに分けて両方出す。
+            ability_ja = ABILITY_JA.get(ability, ability) or ''
+            has_protean = 'へんげんじざい' in ability_ja or 'リベロ' in ability_ja
             nature = pick_nature(entry, pattern)
             st = stats(d['base'], [sps[k] for k in STAT_KEYS], nature)
             moves_raw = translate_moves(entry, display_name, missing_moves, translation_warnings)
             moves_ja = [x.split(' (')[0] for x in moves_raw]
 
-            for hp_full in ([True, False] if has_multiscale else [None]):
+            variants = [(h, p)
+                        for h in ([True, False] if has_multiscale else [None])
+                        for p in ([True, False] if has_protean else [None])]
+            for hp_full, protean in variants:
                 rows.append(dict(
                     rank=entry['pick_rank'], name=display_name, pattern=pattern,
                     share=round(norm), multi=len(spread_variants(entry)) >= 2,
-                    form=form_note, hp_full=hp_full, nature=NAT_JA.get(nature, nature),
+                    form=form_note, hp_full=hp_full, protean=protean,
+                    nature=NAT_JA.get(nature, nature),
                     types=(d['t1'], d['t2']), st=st, ability=ability,
                     speed=int(st[5] * (1.5 if scarf >= 50 else 1)), scarf=scarf >= 50,
                     item=ITEM_JA.get(entry['items'][0]['name'], entry['items'][0]['name'])
@@ -380,17 +406,39 @@ def boosted_hit(member, threat, hp_eff=None):
 
 
 def their_hit(threat, member):
-    """相手の最大打点（自軍の実数値に対して）。"""
+    """相手の最大打点（自軍の実数値に対して）。
+    相手の攻撃特性（使用率が最も高いもの＝threat['ability']）を反映する。
+    補正の掛け方は my_hit と揃える: 威力と攻撃は基礎ダメージ、タイプ一致は stab、
+    残りは extra（その他補正）。順番を変えると乱数判定が1〜2ずれる。
+    防御側（自軍）の特性は今のパーティに軽減特性が無いので見ていない。"""
+    ability = ABILITY_JA.get(threat['ability'], threat['ability']) or ''
     best = None
     for mv in threat['moves_ja'][:8]:
         m = MOVES.get(mv)
         if not m or not m['power']:
             continue
-        t = eff(m['type'], *member['types'])
-        stab = 1.5 if m['type'] in threat['types'] else 1.0
+        power, extra = m['power'], 1.0
         atk = threat['st'][1] if m['cat'] == '物理' else threat['st'][3]
+
+        if 'テクニシャン' in ability and power <= 60:
+            power *= 1.5
+        if ('ちからもち' in ability or 'ヨガパワー' in ability) and m['cat'] == '物理':
+            atk *= 2
+        if 'きれあじ' in ability and mv in SLASH_MOVES:
+            extra *= 1.5
+        if 'かたいツメ' in ability and mv in CONTACT_MOVES:
+            extra *= 1.3
+
+        if threat['protean']:
+            stab = 1.5          # へんげんじざいが発動した技は必ずタイプ一致になる
+        elif 'てきおうりょく' in ability and m['type'] in threat['types']:
+            stab = 2.0
+        else:
+            stab = 1.5 if m['type'] in threat['types'] else 1.0
+
+        t = eff(m['type'], *member['types'])
         dfn = member['st'][2] if m['cat'] == '物理' else member['st'][4]
-        lo, hi = damage(m['power'], atk, dfn, stab, t)
+        lo, hi = damage(power, atk, dfn, stab, t, extra)
         if not best or hi > best['hi']:
             best = dict(move=mv, lo=lo, hi=hi,
                         pl=round(lo * 100 / member['st'][0]),
@@ -511,6 +559,10 @@ def render_card(threat, members, card_id):
         chips += '<span class="pat alt">マルチスケイル有効</span>'
     if threat['hp_full'] is False:
         chips += '<span class="pat ms-off">マルチスケイル解除</span>'
+    if threat['protean'] is True:
+        chips += '<span class="pat alt">へんげんじざい発動</span>'
+    if threat['protean'] is False:
+        chips += '<span class="pat ms-off">へんげんじざい未発動</span>'
 
     move_chips = ''
     for raw in threat['moves_raw'][:8]:
@@ -595,6 +647,10 @@ def main():
             label += ' MS有効'
         if t['hp_full'] is False:
             label += ' MS解除'
+        if t['protean'] is True:
+            label += ' 変幻発動'
+        if t['protean'] is False:
+            label += ' 変幻未発動'
         color = TYPE_COLOR.get(t['types'][0], '#666')
         index_links.append(f'<a href="#{cid}" style="--tc:{color}">{html.escape(label)}</a>')
         cards.append(render_card(t, members, cid))
