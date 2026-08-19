@@ -249,8 +249,10 @@ def sr_damage(threat):
     return int(threat['st'][0] * t / 8)
 
 
-def my_hit(member, move, threat):
-    """自軍の1技が相手に与えるダメージ。変化技はNone、一撃必殺は別扱い。"""
+def my_hit(member, move, threat, hp_eff=None):
+    """自軍の1技が相手に与えるダメージ。変化技はNone、一撃必殺は別扱い。
+    hp_eff は判定・%の分母に使う相手のHP。ステルスロック込みの表を作るときに
+    「最大HP - SRダメージ」を渡す。ダメージの実数値（lo/hi）自体は変わらない。"""
     if move in STATUS_MOVES:
         return None
     if move in OHKO_MOVES:
@@ -275,7 +277,7 @@ def my_hit(member, move, threat):
     atk = member['st'][1] if m['cat'] == '物理' else member['st'][3]
     dfn = threat['st'][2] if m['cat'] == '物理' else threat['st'][4]
     lo, hi = damage(m['power'], atk, dfn, stab, t * am, extra)
-    hp = threat['st'][0]
+    hp = threat['st'][0] if hp_eff is None else hp_eff
     # 表示用は「タイプ相性」と「防御特性による補正」を分ける。
     # 両者を掛けた数字だけ出すと、マルチスケイルで半減された2倍が ×1.0 に見えてしまう。
     result = dict(move=move, lo=lo, hi=hi, pl=round(lo * 100 / hp), ph=round(hi * 100 / hp),
@@ -288,7 +290,7 @@ def my_hit(member, move, threat):
     return result
 
 
-def boosted_hit(member, threat):
+def boosted_hit(member, threat, hp_eff=None):
     """積み技を1回使った後の最大打点。積み技を持たない駒はNone。"""
     if not member['boosting_move']:
         return None
@@ -296,7 +298,7 @@ def boosted_hit(member, threat):
     boosted['st'] = list(member['st'])
     boosted['st'][1] = int(member['st'][1] * 1.5)
     boosted['st'][3] = int(member['st'][3] * 1.5)
-    hits = [my_hit(boosted, mv, threat) for mv in member['moves']]
+    hits = [my_hit(boosted, mv, threat, hp_eff) for mv in member['moves']]
     hits = [h for h in hits if h and not h.get('ohko')]
     return max(hits, key=lambda x: x['hi']) if hits else None
 
@@ -361,11 +363,70 @@ def bar(pl, ph, color):
             f'<div class="fill" style="width:{a}%;background:{color}"></div></div>')
 
 
+def render_row(member, threat, hp_eff, row_class=''):
+    """味方1体分の <tr> を返す。hp_eff は判定・%の分母に使う相手のHP（Noneなら最大HP）。
+    ステルスロック込みの表はここに「最大HP - SRダメージ」を渡して作る。
+    HPが減れば主表示する技そのものが変わりうる（弱い技で確1が取れるようになる等）ので、
+    タグを足すのではなく行をまるごと作り直す。"""
+    hits = [my_hit(member, mv, threat, hp_eff) for mv in member['moves']]
+    primary, alt = choose_move(hits)
+    if not primary:
+        return ''
+    vclass, vcolor = VERDICT_CLASS.get(primary['verdict'], ('v5', 'var(--weak)'))
+    back = their_hit(threat, member)
+    danger = ' dg' if back['ph'] >= 100 else ''
+    faster = member['speed'] > threat['speed']
+
+    tags = ''
+    if primary.get('ab_name'):
+        tags += (f' <span class="abm">{primary["ab_name"]}×{primary["ab_mult"]}</span>')
+    if primary['move'] in DRAWBACK_MOVES:
+        tags += ' <span class="rl">反動</span>'
+    if primary.get('acc'):
+        tags += f' <span class="ac">命中{primary["acc"]:.0f}%</span>'
+    ohko = [h for h in hits if h and h.get('ohko')]
+    if ohko:
+        tags += f' <span class="ohko">＋{ohko[0]["move"]} {ohko[0]["acc"]:.0f}%</span>'
+
+    sub = ''
+    if alt:
+        atags = ''
+        if alt.get('ab_name'):
+            atags += f' <span class="abm">{alt["ab_name"]}×{alt["ab_mult"]}</span>'
+        if alt['move'] in DRAWBACK_MOVES:
+            atags += ' <span class="rl">反動</span>'
+        if alt.get('acc'):
+            atags += f' <span class="ac">命中{alt["acc"]:.0f}%</span>'
+        cls = 'alt up' if VERDICT_RANK[alt['verdict']] > VERDICT_RANK[primary['verdict']] else 'alt'
+        sub += (f'<div class="{cls}">{alt["move"]}{atags}: '
+                f'{alt["pl"]}-{alt["ph"]}% {alt["verdict"]}</div>')
+    boosted = boosted_hit(member, threat, hp_eff)
+    if boosted:
+        sub += (f'<div class="d1">{member["boosting_move"]}+1: {boosted["move"]} '
+                f'{boosted["pl"]}-{boosted["ph"]}% {boosted["verdict"]}</div>')
+
+    form_label = f'<small>{member["form"]}</small>' if member['form'] else ''
+    cls = ' '.join(c for c in ('nonmega' if member['form'] == '非メガ' else '', row_class) if c)
+    return (
+        f'<tr class="{cls}">'
+        f'<td class="me">{member["name"]}{form_label}'
+        f'<span class="spd {"up" if faster else "dn"}">{"先手" if faster else "後手"}</span></td>'
+        f'<td class="hit"><b>{primary["move"]}</b> {primary["lo"]}-{primary["hi"]} '
+        f'<span class="mul">×{primary["eff"]}</span>{tags}{sub}</td>'
+        f'<td class="barcell">{bar(primary["pl"], primary["ph"], vcolor)}</td>'
+        f'<td class="vdcell"><span class="vd {vclass}">{primary["verdict"]}</span></td>'
+        f'<td class="pct">{primary["pl"]}-{primary["ph"]}%</td>'
+        f'<td class="back{danger}">被弾 <b>{back["move"]}</b> {back["ph"]}%</td></tr>')
+
+
 def render_card(threat, members, card_id):
     tc = TYPE_COLOR.get(threat['types'][0], '#666')
     type_label = threat['types'][0] + (f"/{threat['types'][1]}" if threat['types'][1] else '')
+    sr_dmg = sr_damage(threat)
 
     chips = ''
+    if sr_dmg:
+        chips += f'<span class="pat sr-chip">SR -{sr_dmg}</span>'
     if threat['multi']:
         chips += f'<span class="pat">{threat["pattern"]} {threat["share"]}%</span>'
     if threat['form']:
@@ -386,63 +447,19 @@ def render_card(threat, members, card_id):
         move_chips += (f'<span class="mv{"" if is_attack else " st"}">{label} '
                        f'<i>{pct}%{extra}</i></span>')
 
-    sr_dmg = sr_damage(threat)
-    hp = threat['st'][0]
-
+    # SR無しとSR込みの両方の行を静的に書き出しておき、表示はCSSのクラス付け替えで切り替える。
+    # 値が同じになる行（SRが入らない相手、判定も%も動かない行）は1本にまとめる。
+    # そうしないとファイルが倍近くに膨らむ上、切り替えても何も変わらない行が半分を占める。
+    hp_sr = max(threat['st'][0] - sr_dmg, 1)
     rows = ''
     for member in members:
-        hits = [my_hit(member, mv, threat) for mv in member['moves']]
-        primary, alt = choose_move(hits)
-        if not primary:
-            continue
-        vclass, vcolor = VERDICT_CLASS.get(primary['verdict'], ('v5', 'var(--weak)'))
-        back = their_hit(threat, member)
-        danger = ' dg' if back['ph'] >= 100 else ''
-        faster = member['speed'] > threat['speed']
-
-        tags = ''
-        if primary.get('ab_name'):
-            tags += (f' <span class="abm">{primary["ab_name"]}×{primary["ab_mult"]}</span>')
-        if primary['move'] in DRAWBACK_MOVES:
-            tags += ' <span class="rl">反動</span>'
-        if primary.get('acc'):
-            tags += f' <span class="ac">命中{primary["acc"]:.0f}%</span>'
-        ohko = [h for h in hits if h and h.get('ohko')]
-        if ohko:
-            tags += f' <span class="ohko">＋{ohko[0]["move"]} {ohko[0]["acc"]:.0f}%</span>'
-
-        sub = ''
-        if sr_dmg:
-            sr_verdict = verdict(primary['lo'], primary['hi'], max(hp - sr_dmg, 1))
-            if sr_verdict != primary['verdict']:
-                sub += f'<div class="sr">SR込み: {sr_verdict}</div>'
-        if alt:
-            atags = ''
-            if alt.get('ab_name'):
-                atags += f' <span class="abm">{alt["ab_name"]}×{alt["ab_mult"]}</span>'
-            if alt['move'] in DRAWBACK_MOVES:
-                atags += ' <span class="rl">反動</span>'
-            if alt.get('acc'):
-                atags += f' <span class="ac">命中{alt["acc"]:.0f}%</span>'
-            cls = 'alt up' if VERDICT_RANK[alt['verdict']] > VERDICT_RANK[primary['verdict']] else 'alt'
-            sub += (f'<div class="{cls}">{alt["move"]}{atags}: '
-                    f'{alt["pl"]}-{alt["ph"]}% {alt["verdict"]}</div>')
-        boosted = boosted_hit(member, threat)
-        if boosted:
-            sub += (f'<div class="d1">{member["boosting_move"]}+1: {boosted["move"]} '
-                    f'{boosted["pl"]}-{boosted["ph"]}% {boosted["verdict"]}</div>')
-
-        form_label = f'<small>{member["form"]}</small>' if member['form'] else ''
-        rows += (
-            f'<tr class="{"nonmega" if member["form"] == "非メガ" else ""}">'
-            f'<td class="me">{member["name"]}{form_label}'
-            f'<span class="spd {"up" if faster else "dn"}">{"先手" if faster else "後手"}</span></td>'
-            f'<td class="hit"><b>{primary["move"]}</b> {primary["lo"]}-{primary["hi"]} '
-            f'<span class="mul">×{primary["eff"]}</span>{tags}{sub}</td>'
-            f'<td class="barcell">{bar(primary["pl"], primary["ph"], vcolor)}</td>'
-            f'<td class="vdcell"><span class="vd {vclass}">{primary["verdict"]}</span></td>'
-            f'<td class="pct">{primary["pl"]}-{primary["ph"]}%</td>'
-            f'<td class="back{danger}">被弾 <b>{back["move"]}</b> {back["ph"]}%</td></tr>')
+        plain = render_row(member, threat, None)
+        with_sr = render_row(member, threat, hp_sr) if sr_dmg else plain
+        if with_sr == plain:
+            rows += plain
+        else:
+            rows += (render_row(member, threat, None, 'sr0')
+                     + render_row(member, threat, hp_sr, 'sr1'))
 
     st = threat['st']
     return (
@@ -519,19 +536,22 @@ def main():
 <span id="tools" hidden style="display:contents">
 <input id="q" type="search" placeholder="相手の名前（ガブ / ミミ / ブリジュ…）"
  autocomplete="off" autocorrect="off" autocapitalize="off">
-<span class="tgs"><button class="tg" id="tM" aria-pressed="true">非メガも表示</button></span>
+<span class="tgs"><button class="tg" id="tM" aria-pressed="true">非メガも表示</button><button class="tg" id="tS" aria-pressed="false">SR設置済み</button></span>
 <span class="count" id="cnt"></span></span>
 </div></header>
 <main>
 <nav id="idx"><span class="lbl">目次 — タップで移動（{len(index_links)}件）</span>{''.join(index_links)}</nav>
 {''.join(cards)}
-<p class="note">メガシンカ後の実数値で計算。ステルスロック・天候・いかく・積みは未計算（積み技は各行に併記）。
+<p class="note">メガシンカ後の実数値で計算。天候・いかく・積みは未計算（積み技は各行に併記）。
 型の%は判明している配分の中での比率。★はこだわりスカーフ込みの素早さ。
 バーは相手のHP全体に対するダメージ幅で、濃い部分が最低乱数、薄い部分が最高乱数。中央の線が50%。<br>
 技は判定が同じならデメリットのない方を優先して表示している。2行目は次善の選択肢で、
 <span style="color:#7fd4ff">水色は判定が上がる技</span>。「反動」は撃った次のターンに交代できない技。
-「命中◯%」は必中でない技。「SR込み」は自分がステルスロックを設置済みで、相手が満タンの状態で
-場に出てステルスロックを受けた場合の判定変化（マジックガードは無効）。判定が変わらない相手には出さない。</p>
+「命中◯%」は必中でない技。<br>
+「SR設置済み」は自分がステルスロックを撒いてある状態への切り替え。相手が場に出た時点で
+最大HP×いわ相性/8のダメージを受けている前提になり、判定・%・バーはすべて残りHPに対する値に変わる
+（マジックガードは無効。ひこうタイプにも入る）。切り替えで数値が動かない行はそのまま表示される。
+自分側の被弾%には反映していない（相手が撒いてくるかは事前に分からないため）。</p>
 </main>
 <script>{js}</script></body></html>'''
 

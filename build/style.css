@@ -57,7 +57,6 @@ tbody tr:last-child{border-bottom:0}
 .hit b{font-weight:700}
 .mul{color:var(--ink3);font-size:12px}
 .d1{font-size:11.5px;color:var(--rng);font-weight:700;white-space:nowrap}
-.sr{font-size:11.5px;color:var(--danger);font-weight:700;white-space:nowrap}
 .alt{font-size:11.5px;color:var(--ink3);font-weight:600;white-space:nowrap}
 .alt.up{color:#7fd4ff}
 .rl{font-size:10px;font-weight:800;background:#3a2a2f;color:#d99aa6;padding:1px 5px;border-radius:3px;vertical-align:1px}
@@ -79,7 +78,16 @@ tbody tr:last-child{border-bottom:0}
 .ohko{font-size:11px;color:var(--rng);font-weight:700}
 .note{color:var(--ink3);font-size:12px;padding:6px var(--pad) 0;max-width:1400px;margin:0 auto;line-height:1.65}
 .card.hide{display:none}
-tr.nonmega.hide{display:none}
+/* ステルスロック切り替え。SR無し(.sr0)とSR込み(.sr1)の行を両方とも静的に書き出してあり、
+   ここでの表示切り替えだけで見せ分ける（JSでダメージを再計算しない）。
+   既定は .sr1 を隠す = JSが動かない環境ではSR無しの表がそのまま読める。 */
+tr.sr1{display:none}
+body.sron tr.sr0{display:none}
+body.sron tr.sr1{display:table-row}
+.sr-chip{display:none;background:#7a3b46;color:#ffd9df}
+body.sron .sr-chip{display:inline}
+/* 非メガ非表示はSRのどちらの状態でも優先する */
+tr.nonmega.hide{display:none!important}
 @media (max-width:760px){
 :root{--pad:11px}
 body{font-size:14px}
@@ -96,6 +104,8 @@ main{padding:10px var(--pad);gap:10px}
 thead{display:none}
 table,tbody,tr,td{display:block;width:100%}
 tbody tr{padding:9px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:center}
+tr.sr1{display:none}
+body.sron tbody tr.sr1{display:grid}
 td{padding:0}
 .me{grid-column:1;grid-row:1;font-size:15px}
 .vdcell{grid-column:2;grid-row:1;justify-self:end}

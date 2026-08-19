@@ -14,6 +14,13 @@ document.getElementById('tM').addEventListener('click',function(e){
   mg=!mg;e.currentTarget.setAttribute('aria-pressed',mg);
   [].forEach.call(document.querySelectorAll('tr.nonmega'),function(r){r.classList.toggle('hide',!mg)});
 });
+// ステルスロック切り替え。両方の行は既に書き出してあるので、bodyのクラスを付け替えるだけ。
+// ここでダメージを計算し直さないこと（JSが動かない環境との食い違いが出る）。
+var sr=false;
+document.getElementById('tS').addEventListener('click',function(e){
+  sr=!sr;e.currentTarget.setAttribute('aria-pressed',sr);
+  document.body.classList.toggle('sron',sr);
+});
 addEventListener('keydown',function(e){
   if(e.key==='/'&&document.activeElement!==q){e.preventDefault();q.focus();q.select();}
   if(e.key==='Escape'){q.value='';render();}
