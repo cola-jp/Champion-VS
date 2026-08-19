@@ -12,6 +12,7 @@
 """
 import json
 import os
+import re
 from openpyxl import load_workbook
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -130,6 +131,34 @@ REGION_ANY = ('アローラ', 'ヒスイ', 'ガラル', 'パルデア', 'ウォ�
               'フロスト', 'スピン', 'カット', 'えいえん', 'たそがれ', 'まよなか', 'まひる')
 
 
+# メガ形態の判定。「名前がメガで始まるか」で見ると、メガニウム・メガヤンマのように
+# たまたま名前がメガで始まる普通のポケモンをメガ形態と誤判定する。
+# 実際にメガニウムがメガメガニウムの代わりに使われ、種族値もタイプ（フェアリー）も
+# 間違ったまま表に出ていた。同じ図鑑番号の中に「メガ」を外した名前が居るときだけ
+# メガ形態とみなす。メガリザードンX のように末尾にX/Yが付く形態も拾う。
+def _plain_key(name):
+    """形態の括弧書きを外した名前。'フラエッテ(えいえん)' -> 'フラエッテ'。
+    メガフラエッテの元が括弧付きでしか載っていないので、これを外さないと対応が取れない。"""
+    return re.sub(r'[(（].*$', '', name)
+
+
+MEGA_NAMES = set()
+for _names in BY_DEX_NO.values():
+    for _n in _names:
+        if not _n.startswith('メガ'):
+            continue
+        _rest = _n[2:]
+        if _rest[-1:] in ('X', 'Y'):        # メガリザードンX / Y
+            _rest = _rest[:-1]
+        if any(_plain_key(_o) == _rest for _o in _names if _o != _n):
+            MEGA_NAMES.add(_n)
+
+
+def is_mega(name):
+    """メガ形態かどうか。name.startswith('メガ') を直接使わないこと。"""
+    return name in MEGA_NAMES
+
+
 def resolve_form(entry, want_mega=False):
     """JSONの1エントリから、図鑑上の正しいポケモン名を返す。
     region_form を無視すると別形態の種族値で計算してしまうので必ずこれを通すこと。
@@ -159,8 +188,8 @@ def resolve_form(entry, want_mega=False):
             cands = [n for n in cands if '♀' not in n]
     if not cands:
         cands = names
-    megas = [n for n in cands if n.startswith('メガ')]
-    plains = [n for n in cands if not n.startswith('メガ')]
+    megas = [n for n in cands if is_mega(n)]
+    plains = [n for n in cands if not is_mega(n)]
     if want_mega and megas:
         return megas[0], megas
     return (plains[0] if plains else cands[0]), megas

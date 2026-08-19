@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
-                    MOVE_NAME_EN_JA, LEGACY_USE, ABILITIES, fix_move_name,
+                    MOVE_NAME_EN_JA, LEGACY_USE, ABILITIES, fix_move_name, is_mega,
                     PokemonNotFoundError, RegionFormError,
                     stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -106,6 +106,11 @@ ABILITY_HANDLING = {
     'きれあじ': '反映済み: 斬撃技1.5倍。対象は party.SLASH_MOVES',
     'へんげんじざい': '反映済み: 発動・未発動で行を2つに分ける',
     'リベロ': '反映済み: へんげんじざいと同じ扱い',
+
+    # --- 効果が確認できていない。チャンピオンズ独自のメガで、Wikiの特性一覧にも載っていない ---
+    # 今は補正なし（＝影響なし）として扱っている。もし打点を上げる特性なら、
+    # メガメガニウムからの被弾がその分低く出ているので、判明したらここを直すこと。
+    'メガソーラー': '要確認: 効果不明（メガメガニウム）。現状は補正なしで計算している',
 
     # --- 未反映（影響はあるが入れていない） ---
     'きもったま': '未反映: ノーマル・かくとうがゴーストに通る。今のパーティにゴーストが居ない',
@@ -278,14 +283,14 @@ def build_threats():
             d, display_name, form_note = dex, name, ''
             # メガと逆向きの攻撃方向に振っている型は非メガ運用とみなす
             # （例: メガカイリューはA124<C145の特殊寄り。A振り26%は非メガ率26%と一致する）
-            if name.startswith('メガ') and base_name and base_name in DEX and stone < 97:
+            if is_mega(name) and base_name and base_name in DEX and stone < 97:
                 mb, bb = dex['base'], DEX[base_name]['base']
                 flip_a = 'A' in pattern and 'C' not in pattern and mb[1] < mb[3] and bb[1] > bb[3]
                 flip_c = 'C' in pattern and 'A' not in pattern and mb[3] < mb[1] and bb[3] > bb[1]
                 if flip_a or flip_c:
                     d, display_name, form_note = DEX[base_name], base_name, '非メガ'
 
-            ability = (d['ab'] if display_name.startswith('メガ')
+            ability = (d['ab'] if is_mega(display_name)
                        else max(entry['abilities'], key=lambda x: x['usage'])['name'])
             has_multiscale = 'マルチスケイル' in (d['ab'] or '') or 'multiscale' in (ability or '')
             # へんげんじざいは「発動して一致が乗る」場合と「発動していない（＝不一致技を撃つ）」
