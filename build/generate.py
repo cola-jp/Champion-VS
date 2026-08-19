@@ -104,13 +104,10 @@ ABILITY_HANDLING = {
     'てきおうりょく': '反映済み: タイプ一致が2.0倍',
     'テクニシャン': '反映済み: 威力60以下が1.5倍',
     'きれあじ': '反映済み: 斬撃技1.5倍。対象は party.SLASH_MOVES',
+    'メガソーラー': '反映済み: 自分だけ常ににほんばれ。ウェザーボールがほのお威力100、'
+                    'ほのお技1.5倍・みず技0.5倍。ソーラービームは溜めなしなので威力120のまま',
     'へんげんじざい': '反映済み: 発動・未発動で行を2つに分ける',
     'リベロ': '反映済み: へんげんじざいと同じ扱い',
-
-    # --- 効果が確認できていない。チャンピオンズ独自のメガで、Wikiの特性一覧にも載っていない ---
-    # 今は補正なし（＝影響なし）として扱っている。もし打点を上げる特性なら、
-    # メガメガニウムからの被弾がその分低く出ているので、判明したらここを直すこと。
-    'メガソーラー': '要確認: 効果不明（メガメガニウム）。現状は補正なしで計算している',
 
     # --- 未反映（影響はあるが入れていない） ---
     'きもったま': '未反映: ノーマル・かくとうがゴーストに通る。今のパーティにゴーストが居ない',
@@ -426,8 +423,20 @@ def their_hit(threat, member):
         m = MOVES.get(mv)
         if not m or not m['power']:
             continue
-        power, extra = m['power'], 1.0
+        move_type, power, extra = m['type'], m['power'], 1.0
         atk = threat['st'][1] if m['cat'] == '物理' else threat['st'][3]
+
+        # メガソーラー（メガメガニウム）は、実際の天候に関わらず自分の行動だけを
+        # にほんばれ状態として扱う。ウェザーボールがほのお・威力100に変わるのが大きく、
+        # 素の ノーマル・威力50 のまま計算すると被弾を大幅に見誤る。
+        # ソーラービームは溜めなし・威力低下なしなので、そのまま威力120で扱ってよい。
+        if 'メガソーラー' in ability:
+            if mv == 'ウェザーボール':
+                move_type, power = 'ほのお', 100.0
+            if move_type == 'ほのお':
+                extra *= 1.5
+            elif move_type == 'みず':
+                extra *= 0.5
 
         if 'テクニシャン' in ability and power <= 60:
             power *= 1.5
@@ -440,12 +449,12 @@ def their_hit(threat, member):
 
         if threat['protean']:
             stab = 1.5          # へんげんじざいが発動した技は必ずタイプ一致になる
-        elif 'てきおうりょく' in ability and m['type'] in threat['types']:
+        elif 'てきおうりょく' in ability and move_type in threat['types']:
             stab = 2.0
         else:
-            stab = 1.5 if m['type'] in threat['types'] else 1.0
+            stab = 1.5 if move_type in threat['types'] else 1.0
 
-        t = eff(m['type'], *member['types'])
+        t = eff(move_type, *member['types'])
         if t == 0:
             continue    # タイプ無効。damage() は最低1を返すので、ここで落とさないと
                         # 「じしん 1%」のような通らない技が主表示になってしまう

@@ -159,6 +159,14 @@ def is_mega(name):
     return name in MEGA_NAMES
 
 
+# リージョンフォームにメガを紐付ける例外。
+# フラエッテは図鑑に「フラエッテ(えいえん)」しか無く、メガフラエッテはその形態のメガ。
+# 一方ライチュウ(アローラ)やヤドラン(ガラル)は通常形態が別に居て、メガはそちらのものなので、
+# 「リージョンフォームにメガを付ける」を一般ルールにすると誤ってメガを生やしてしまう。
+# 実際に該当するのはこの1件だけなので、一般化せず例外として書く。
+REGION_FORM_MEGA = {'フラエッテ(えいえん)': 'メガフラエッテ'}
+
+
 def resolve_form(entry, want_mega=False):
     """JSONの1エントリから、図鑑上の正しいポケモン名を返す。
     region_form を無視すると別形態の種族値で計算してしまうので必ずこれを通すこと。
@@ -190,6 +198,14 @@ def resolve_form(entry, want_mega=False):
         cands = names
     megas = [n for n in cands if is_mega(n)]
     plains = [n for n in cands if not is_mega(n)]
+    if not megas:
+        # リージョンフォーム名で絞ると、その形態のメガ（メガフラエッテ）が候補から外れる。
+        # 上の REGION_FORM_MEGA に書いた組み合わせだけ拾い直す。
+        for _c in cands:
+            _m = REGION_FORM_MEGA.get(_c)
+            if _m and _m in names:
+                megas = [_m]
+                break
     if want_mega and megas:
         return megas[0], megas
     return (plains[0] if plains else cands[0]), megas
