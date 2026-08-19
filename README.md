@@ -40,6 +40,21 @@ generate.py が実数値を自動検証するので、設定ミスならビル�
 技の日本語名は `data/move_names_en_ja.json` が一次情報なので、月が変わってもシート名を
 直書きしているコードを探して回る必要はない。
 
+新しい特性を持つポケモンが入ってくると「計算に入れるか未判断の特性があります」と警告が出る。
+`data/abilities_ja.json` で効果を確認し、`build/generate.py` の `ABILITY_HANDLING` に
+反映するのか無視するのかを1行足す。
+
+## 特性データを更新する
+
+`data/特性の効果.pdf`（育成考察Wikiの特性一覧ページ）を新しいものに置き換えて、
+
+```bash
+pip install pypdf
+python build/extract_abilities.py
+```
+
+`data/abilities_ja.json` が作り直される。通常のビルドには pypdf は要らない。
+
 ## 公開
 
 main ブランチのルートを GitHub Pages が配信している。

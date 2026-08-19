@@ -5,6 +5,7 @@
   data/ポケモン図鑑.xlsx      ... 種族値・タイプ相性・技データ（日本語技名の一次情報はこちら）
   data/技使用率データ.JSON     ... 使用率・性格・努力値配分・持ち物・特性・技（英語名、月替わり）
   data/move_names_en_ja.json ... 技使用率データ.JSON の英語技名 → 日本語技名の対応表
+  data/abilities_ja.json     ... 特性名 → 効果の対応表（build/extract_abilities.py で生成）
 
 レギュレーションM-B シングル / レベル50固定 / 個体値31 / 努力値は「能力ポイント」表記
   1ポイント = 努力値8 / 1体あたり合計66ポイントまで / 1ステータス最大32ポイント
@@ -17,6 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 XLSX = os.path.join(ROOT, 'data', 'ポケモン図鑑.xlsx')
 JSON_PATH = os.path.join(ROOT, 'data', '技使用率データ.JSON')
 MOVE_NAME_JSON_PATH = os.path.join(ROOT, 'data', 'move_names_en_ja.json')
+ABILITY_JSON_PATH = os.path.join(ROOT, 'data', 'abilities_ja.json')
 
 # 技使用率データ.JSON が月替わりで差し替えられる前提の、既知の最終フォールバックシート名。
 # 対応表(move_names_en_ja.json)に無い技だけがここを参照する。月が変わっても更新は必須ではない
@@ -88,6 +90,11 @@ for _r in WB['チャンピオンズ図鑑'].iter_rows(min_row=2, values_only=Tru
 # 技名の英語→日本語対応表（一次情報）。技使用率データ.JSON の技は英語名で入っているので、
 # 月が変わってもこれを差し替える必要はない。対応表に無い技だけ LEGACY_MOVE_SHEET にフォールバックする。
 MOVE_NAME_EN_JA = json.load(open(MOVE_NAME_JSON_PATH, encoding='utf-8'))
+
+# 特性名 → 効果。ダメージ計算そのものには使わず、「この特性を計算に入れなくてよいか」を
+# 人が判断するための参照データ。generate.py の ABILITY_HANDLING と突き合わせて、
+# 未分類の特性が使用率データに出てきたら警告する。
+ABILITIES = json.load(open(ABILITY_JSON_PATH, encoding='utf-8'))
 
 # 旧・使用率シート（月次、フォールバック専用）: LEGACY_USE[ポケモン名] = {rank, moves}
 # moves は「日本語技名 (採用率%)」の文字列。対応表(MOVE_NAME_EN_JA)に無い技を、同じ月の
