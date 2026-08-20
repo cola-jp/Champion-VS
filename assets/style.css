@@ -20,13 +20,21 @@ border-radius:7px;font:inherit;font-size:12.5px;cursor:pointer;min-height:40px;w
 main{max-width:1400px;margin:0 auto;padding:12px var(--pad);display:flex;flex-direction:column;gap:12px}
 #idx{display:flex;flex-wrap:wrap;gap:5px;padding:12px 14px;background:var(--surface);
 border:1px solid var(--line);border-radius:11px;scroll-margin-top:80px}
-#idx a{color:var(--ink2);font-size:12.5px;text-decoration:none;padding:4px 8px;border-radius:5px;
-background:var(--surface2);border-left:3px solid var(--tc,#666)}
-#idx a:hover,#idx a:focus{color:var(--ink);background:#2b3142;outline:none}
+#idx a{color:var(--ink2);font-size:12.5px;text-decoration:none;padding:4px 8px 4px 11px;border-radius:5px;
+background-color:var(--surface2);
+background-image:linear-gradient(180deg,var(--tc,#666) 0 50%,var(--tc2,var(--tc,#666)) 50% 100%);
+background-size:3px 100%;background-repeat:no-repeat;background-position:left top}
+#idx a:hover,#idx a:focus{color:var(--ink);background-color:#2b3142;outline:none}
 #idx .lbl{width:100%;font-size:11px;letter-spacing:.14em;color:var(--ink3);font-weight:700;margin-bottom:2px}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:11px;overflow:hidden;scroll-margin-top:76px}
-.chead{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;padding:11px 14px 11px 15px;
-border-left:5px solid var(--tc,#666);background:linear-gradient(90deg,color-mix(in srgb,var(--tc) 18%,transparent),transparent 62%)}
+/* タイプの帯。複合タイプは上半分がタイプ1・下半分がタイプ2。
+   --tc2 が無い（単タイプ）ときは --tc に落ちるので、見た目は単色のときと変わらない。
+   border は単色しか塗れないので、帯は背景で描いてその分を padding-left で空けている。 */
+.chead{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;padding:11px 14px 11px 20px;
+background:
+linear-gradient(180deg,var(--tc,#666) 0 50%,var(--tc2,var(--tc,#666)) 50% 100%) left top/5px 100% no-repeat,
+linear-gradient(90deg,color-mix(in srgb,var(--tc) 18%,transparent),
+color-mix(in srgb,var(--tc2,var(--tc)) 13%,transparent) 30%,transparent 62%)}
 .rk{color:var(--ink3);font-size:12px;font-weight:800}
 .nm{font-size:20px;font-weight:800}
 .pat{background:var(--tc);color:#10121a;font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:4px}
@@ -162,8 +170,11 @@ button.act:disabled{opacity:.45;cursor:not-allowed}
 /* 1体分の編集カード */
 .mon{border:1px solid var(--line);border-radius:10px;background:var(--surface2);overflow:hidden}
 .mon.bad{border-color:#5a3038}
-.mhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 12px;
-border-left:5px solid var(--tc,#666);background:linear-gradient(90deg,color-mix(in srgb,var(--tc) 16%,transparent),transparent 60%)}
+.mhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 12px 9px 17px;
+background:
+linear-gradient(180deg,var(--tc,#666) 0 50%,var(--tc2,var(--tc,#666)) 50% 100%) left top/5px 100% no-repeat,
+linear-gradient(90deg,color-mix(in srgb,var(--tc) 16%,transparent),
+color-mix(in srgb,var(--tc2,var(--tc)) 11%,transparent) 30%,transparent 60%)}
 .mhead .idx{color:var(--ink3);font-size:11.5px;font-weight:800}
 .mhead .mname{font-size:15.5px;font-weight:800}
 .mhead .mtype{font-size:11.5px;color:var(--ink2)}

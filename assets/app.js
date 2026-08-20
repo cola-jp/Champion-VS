@@ -89,8 +89,15 @@
 
   // ---------------------------------------------------------- 1カード
 
+  /* タイプの色。複合タイプは2色目も返す（帯を上下で塗り分けるため）。
+     単タイプは --tc2 を出さず、CSS 側で --tc に落ちるようにしている。 */
+  function typeVars(types) {
+    const c1 = R.typeColor[types[0]] || '#666';
+    const c2 = types[1] ? (R.typeColor[types[1]] || '#666') : null;
+    return `--tc:${c1}` + (c2 ? `;--tc2:${c2}` : '');
+  }
+
   function renderCard(threat, id) {
-    const tc = R.typeColor[threat.types[0]] || '#666';
     const typeLabel = threat.types[0] + (threat.types[1] ? '/' + threat.types[1] : '');
     const sr = Engine.srDamage(threat);
     const hpEff = srOn && sr ? Math.max(threat.st[0] - sr, 1) : undefined;
@@ -119,7 +126,7 @@
     const abJa = threat.ability_ja || threat.ability;
     const off = threat.hp_full === false ? ' class=off' : '';
 
-    return `<section class="card" id="${id}" data-n="${esc(threat.name)}" style="--tc:${tc}">` +
+    return `<section class="card" id="${id}" data-n="${esc(threat.name)}" style="${typeVars(threat.types)}">` +
       `<div class="chead"><span class="rk">#${threat.rank}</span>` +
       `<span class="nm">${esc(threat.name)}</span>${chips}` +
       `<span class="tag">${esc(typeLabel)}・<b${off}>${esc(abJa)}</b>・` +
@@ -145,8 +152,7 @@
       if (t.hp_full === false) label += ' MS解除';
       if (t.protean === true) label += ' 変幻発動';
       if (t.protean === false) label += ' 変幻未発動';
-      const color = R.typeColor[t.types[0]] || '#666';
-      links.push(`<a href="#${id}" style="--tc:${color}">${esc(label)}</a>`);
+      links.push(`<a href="#${id}" style="${typeVars(t.types)}">${esc(label)}</a>`);
       cards.push(renderCard(t, id));
     });
     $('idx').innerHTML = `<span class="lbl">目次 — タップで移動（${links.length}件）</span>` + links.join('');

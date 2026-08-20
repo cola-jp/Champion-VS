@@ -83,10 +83,14 @@
 
   // ---------------------------------------------------------- 描画
 
-  function typeColorOf(name) {
+  /* タイプの帯の色を要素に設定する。複合タイプなら2色目も入れて上下で塗り分ける。
+     単タイプのときは --tc2 を消して、CSS 側で --tc に落ちるようにする。 */
+  function setTypeColors(el, name) {
     const d = Engine.dex[name];
-    if (!d) return '#666';
-    return Engine.rules.typeColor[d.t1] || '#666';
+    const color = t => (t && Engine.rules.typeColor[t]) || '#666';
+    el.style.setProperty('--tc', d ? color(d.t1) : '#666');
+    if (d && d.t2) el.style.setProperty('--tc2', color(d.t2));
+    else el.style.removeProperty('--tc2');
   }
 
   function render() {
@@ -99,7 +103,7 @@
       const dex = Engine.dex[e.name];
       const card = document.createElement('section');
       card.className = 'mon' + (r.ok ? '' : ' bad');
-      card.style.setProperty('--tc', typeColorOf(e.name));
+      setTypeColors(card, e.name);
 
       const typeLabel = dex ? dex.t1 + (dex.t2 ? '/' + dex.t2 : '') : '—';
       const evLine = r.ok
