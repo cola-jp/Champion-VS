@@ -25,11 +25,12 @@
 ## ビルド
 
 ```bash
-pip install openpyxl
 python build/generate.py         # データの整合性を確認
 python build/export_app_data.py  # ブラウザが読む appdata/*.json を書き出す
 node build/verify_engine.js      # JS版がPython版と同じ数値を出すか確認
 ```
+
+一次データは全部CSVなので、追加ライブラリも Excel も要らない。
 
 `appdata/*.json` は生成物。直接編集しない。作り直したらコミットすること
 （CI がコミット済みのものと一致するかを見ている）。
@@ -44,7 +45,7 @@ node build/verify_engine.js      # JS版がPython版と同じ数値を出すか�
 3. 警告（`data/move_names_en_ja.json に無い技があります`）が出たら、該当の技を
    `data/move_names_en_ja.json` に追記する（英語技名 → 日本語技名）。
    ビルドがエラーで止まった場合（図鑑に無いポケモン／リージョンフォーム未解決／技データに無い技）は、
-   `data/ポケモン図鑑.xlsx` に該当のポケモンや技の行を追加してから再実行する。
+   `data/dex.csv` や `data/moves.csv` に行を追加してから再実行する。
 
 技の日本語名は `data/move_names_en_ja.json` が一次情報なので、月が変わってもシート名を
 直書きしているコードを探して回る必要はない。
@@ -52,6 +53,27 @@ node build/verify_engine.js      # JS版がPython版と同じ数値を出すか�
 新しい特性を持つポケモンが入ってくると「計算に入れるか未判断の特性があります」と警告が出る。
 `data/abilities_ja.json` で効果を確認し、`build/generate.py` の `ABILITY_HANDLING` に
 反映するのか無視するのかを1行足す。
+
+## 新しいポケモン・技を足す
+
+一次データはCSVなので直接編集する。
+
+| 追加するもの | 触るファイル |
+|---|---|
+| ポケモン | `data/dex.csv` に1行。特性は `/` 区切り。メガやリージョンは同じ番号で別行 |
+| 技 | `data/moves.csv` に1行 + `data/move_names_en_ja.json` に英語名の対応 |
+| 特性 | 名前は `dex.csv` に書く。計算に効くかは `build/generate.py` の `ABILITY_HANDLING` に1行 |
+
+`data/dex.csv` の列は `no,name,type1,type2,abilities,hp,atk,def,spa,spd,spe`。
+
+```
+003,フシギバナ,くさ,どく,しんりょく/ようりょくそ,80,82,83,100,100,80
+```
+
+単タイプなら `type2` は空にする。タイプ名の打ち間違いや種族値の欠けは
+`python build/generate.py` が名前を挙げて止める。
+
+`data/ポケモン図鑑.xlsx` は移行元として残してあるが、コードはもう読まない。
 
 ## 特性データを更新する
 

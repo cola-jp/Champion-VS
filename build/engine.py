@@ -1,35 +1,42 @@
 """
 ポケモンチャンピオンズ 対面ダメージ計算エンジン
 
-データソース:
-  data/ポケモン図鑑.xlsx      ... 種族値・タイプ相性・技データ（日本語技名の一次情報はこちら）
+データソース（すべてテキスト。Excel は要らない）:
+  data/dex.csv               ... 図鑑。種族値・タイプ・特性
+  data/moves.csv             ... 技データ
+  data/type_chart.csv        ... タイプ相性表
   data/技使用率データ.JSON     ... 使用率・性格・努力値配分・持ち物・特性・技（英語名、月替わり）
   data/move_names_en_ja.json ... 技使用率データ.JSON の英語技名 → 日本語技名の対応表
   data/abilities_ja.json     ... 特性名 → 効果の対応表（build/extract_abilities.py で生成）
 
+data/ポケモン図鑑.xlsx は移行元として残してあるが、コードはもう読まない。
+新しいポケモンや技は CSV を直接編集して足す（差分が見えるので取り込みミスに気づける）。
+
 レギュレーションM-B シングル / レベル50固定 / 個体値31 / 努力値は「能力ポイント」表記
   1ポイント = 努力値8 / 1体あたり合計66ポイントまで / 1ステータス最大32ポイント
 """
+import csv
 import json
 import os
 import re
-from openpyxl import load_workbook
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-XLSX = os.path.join(ROOT, 'data', 'ポケモン図鑑.xlsx')
-JSON_PATH = os.path.join(ROOT, 'data', '技使用率データ.JSON')
-MOVE_NAME_JSON_PATH = os.path.join(ROOT, 'data', 'move_names_en_ja.json')
-ABILITY_JSON_PATH = os.path.join(ROOT, 'data', 'abilities_ja.json')
+DATA = os.path.join(ROOT, 'data')
+DEX_CSV = os.path.join(DATA, 'dex.csv')
+MOVES_CSV = os.path.join(DATA, 'moves.csv')
+TYPE_CHART_CSV = os.path.join(DATA, 'type_chart.csv')
+JSON_PATH = os.path.join(DATA, '技使用率データ.JSON')
+MOVE_NAME_JSON_PATH = os.path.join(DATA, 'move_names_en_ja.json')
+ABILITY_JSON_PATH = os.path.join(DATA, 'abilities_ja.json')
 
-# 技使用率データ.JSON が月替わりで差し替えられる前提の、既知の最終フォールバックシート名。
-# 対応表(move_names_en_ja.json)に無い技だけがここを参照する。月が変わっても更新は必須ではない
-# （このシート自体は2026年7月のスナップショットのまま残しておいてよい。それでも対応表拡充までの
-#   橋渡しとして機能する）。シートが無くても（将来消しても）ビルドは通る。
-LEGACY_MOVE_SHEET = '202607技使用率'
+
+def _read_csv(path):
+    with open(path, encoding='utf-8', newline='') as f:
+        return list(csv.DictReader(f))
 
 
 class PokemonNotFoundError(Exception):
-    """使用率データの pokemon_id が図鑑（チャンピオンズ図鑑シート）に存在しない。"""
+    """使用率データの pokemon_id が図鑑（data/dex.csv）に存在しない。"""
 
 
 class RegionFormError(Exception):
@@ -37,21 +44,16 @@ class RegionFormError(Exception):
 
 # ---------------------------------------------------------------- データ読み込み
 
-WB = load_workbook(XLSX, data_only=True)
-
 # タイプ相性表: EFF[(攻撃タイプ, 防御タイプ)] = 倍率
 EFF = {}
-_rows = list(WB['相性表'].iter_rows(values_only=True))
-_deftypes = [c for c in _rows[1][2:] if c]
-for _r in _rows[2:]:
-    if not _r[1]:
-        continue
-    for _i, _dt in enumerate(_deftypes):
-        if _r[2 + _i] is not None:
-            EFF[(_r[1], _dt)] = float(_r[2 + _i])
+for _r in _read_csv(TYPE_CHART_CSV):
+    _atk = _r['attack']
+    for _dt, _v in _r.items():
+        if _dt != 'attack' and _v != '':
+            EFF[(_atk, _dt)] = float(_v)
 
-# xlsx側の技名の誤りを読み込み時に直す。英語名をそのまま音写してしまっているもの。
-# 本来は data/ポケモン図鑑.xlsx を直すのが筋だが、シートを跨いで揃える必要があるのでここで吸収する。
+# 図鑑側の技名の誤りを読み込み時に直す。英語名をそのまま音写してしまっているもの。
+# 本来は data/moves.csv を直すのが筋だが、使用率データ側とも揃える必要があるのでここで吸収する。
 MOVE_NAME_FIX = {
     'スピリットブレイク': 'ソウルクラッシュ',   # Spirit Break の正式和名はソウルクラッシュ
     'うでずもう': 'アームハンマー',             # Hammer Arm の正式和名はアームハンマー
@@ -64,54 +66,72 @@ def fix_move_name(name):
 
 # 技データ: MOVES[技名] = {type, cat, power, acc, pri, effect}
 MOVES = {}
-for _r in WB['技データ'].iter_rows(min_row=2, values_only=True):
-    if not _r[0]:
+for _r in _read_csv(MOVES_CSV):
+    if not _r['name']:
         continue
-    MOVES[fix_move_name(_r[0])] = dict(type=_r[1], cat=_r[2],
-                        power=float(_r[3]) if _r[3] else 0,
-                        acc=float(_r[4]) if _r[4] else None,
-                        pri=_r[5], effect=_r[6])
+    MOVES[fix_move_name(_r['name'])] = dict(
+        type=_r['type'], cat=_r['category'],
+        power=float(_r['power']) if _r['power'] else 0,
+        acc=float(_r['accuracy']) if _r['accuracy'] else None,
+        pri=float(_r['priority']) if _r['priority'] else 0.0,
+        effect=_r['effect'] or None)
 
-# 図鑑: DEX[ポケモン名] = {t1, t2, ab, base}   ※メガ形態は「メガ○○」で別エントリ
+# 図鑑: DEX[ポケモン名] = {t1, t2, ab, ab_list, base}
+# メガ形態やリージョンフォームは「メガ○○」「○○(ヒスイ)」で別エントリ。
+# ab_list が特性の正しい一覧。ab は互換のために連結した文字列で、
+# 既存の部分一致（'あついしぼう' in ab）がそのまま動くように残してある。
 DEX = {}
 BY_DEX_NO = {}   # 図鑑番号 -> [通常形態名, メガ形態名, ...]
-for _r in WB['チャンピオンズ図鑑'].iter_rows(min_row=2, values_only=True):
-    if not _r[1]:
+for _r in _read_csv(DEX_CSV):
+    if not _r['name']:
         continue
-    _bs = str(_r[5]).split('-')
-    if len(_bs) != 6:
-        continue
-    DEX[_r[1]] = dict(t1=_r[2], t2=_r[3] or None, ab=_r[4],
-                      base=[int(x) for x in _bs])
+    _abs = [a for a in (_r['abilities'] or '').split('/') if a]
+    DEX[_r['name']] = dict(
+        t1=_r['type1'], t2=_r['type2'] or None,
+        ab=''.join(_abs), ab_list=_abs,
+        base=[int(_r[k]) for k in ('hp', 'atk', 'def', 'spa', 'spd', 'spe')])
     try:
-        _num = int(str(_r[0]).replace(':', '').strip())
-        BY_DEX_NO.setdefault(_num, []).append(_r[1])
+        BY_DEX_NO.setdefault(int(_r['no']), []).append(_r['name'])
     except (ValueError, TypeError):
         pass
 
+
+def _check_dex():
+    """dex.csv / moves.csv の打ち間違いを、分かりやすい形で早めに知らせる。
+    新しいポケモンや技を手で足したときの取りこぼしを拾うのが目的。
+    タイプ名は相性表に無ければ計算時に KeyError になるだけで原因が分からないので、
+    ここで名前を挙げて止める。"""
+    types = {a for a, _ in EFF} | {d for _, d in EFF}
+    bad = []
+    for name, d in DEX.items():
+        for t in (d['t1'], d['t2']):
+            if t and t not in types:
+                bad.append(f'  {name}: タイプ「{t}」は相性表にありません')
+        if len(d['base']) != 6 or any(v <= 0 for v in d['base']):
+            bad.append(f'  {name}: 種族値がおかしいです {d["base"]}')
+        if not d['ab_list']:
+            bad.append(f'  {name}: 特性が空です')
+    for name, m in MOVES.items():
+        if m['type'] not in types:
+            bad.append(f'  技 {name}: タイプ「{m["type"]}」は相性表にありません')
+        if m['cat'] not in ('物理', '特殊', '変化'):
+            bad.append(f'  技 {name}: 分類「{m["cat"]}」は 物理/特殊/変化 のいずれかにしてください')
+    if bad:
+        print('data/dex.csv または data/moves.csv の内容に問題があります:')
+        print('\n'.join(bad))
+        raise SystemExit(1)
+
+
+_check_dex()
+
 # 技名の英語→日本語対応表（一次情報）。技使用率データ.JSON の技は英語名で入っているので、
-# 月が変わってもこれを差し替える必要はない。対応表に無い技だけ LEGACY_MOVE_SHEET にフォールバックする。
+# 月が変わってもこれを差し替える必要はない。ここに無い技は警告を出して英語名のまま残す。
 MOVE_NAME_EN_JA = json.load(open(MOVE_NAME_JSON_PATH, encoding='utf-8'))
 
 # 特性名 → 効果。ダメージ計算そのものには使わず、「この特性を計算に入れなくてよいか」を
 # 人が判断するための参照データ。generate.py の ABILITY_HANDLING と突き合わせて、
 # 未分類の特性が使用率データに出てきたら警告する。
 ABILITIES = json.load(open(ABILITY_JSON_PATH, encoding='utf-8'))
-
-# 旧・使用率シート（月次、フォールバック専用）: LEGACY_USE[ポケモン名] = {rank, moves}
-# moves は「日本語技名 (採用率%)」の文字列。対応表(MOVE_NAME_EN_JA)に無い技を、同じ月の
-# このシートの並び順から拾うためだけに使う。無くてもビルドは通る。
-LEGACY_USE = {}
-if LEGACY_MOVE_SHEET in WB.sheetnames:
-    for _r in WB[LEGACY_MOVE_SHEET].iter_rows(min_row=2, values_only=True):
-        if _r[1]:
-            _mv = []
-            for _x in _r[3:13]:
-                if not _x:
-                    continue
-                _nm = str(_x).split(' (')[0]
-                _mv.append(str(_x).replace(_nm, fix_move_name(_nm), 1))
-            LEGACY_USE[_r[1]] = dict(rank=_r[0], moves=_mv)
 
 # 使用率JSON（英語名・230体）
 USAGE = json.load(open(JSON_PATH, encoding='utf-8'))

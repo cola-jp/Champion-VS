@@ -18,7 +18,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
-                    MOVE_NAME_EN_JA, LEGACY_USE, ABILITIES, fix_move_name, is_mega,
+                    MOVE_NAME_EN_JA, ABILITIES, fix_move_name, is_mega,
                     PokemonNotFoundError, RegionFormError,
                     stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -193,17 +193,17 @@ def pick_form(entry):
 
 def translate_moves(entry, display_name, missing_moves, translation_warnings):
     """entry['moves']（英語名+採用率）を「日本語技名 (採用率%)」のリストに変換する。
-    優先順位: data/move_names_en_ja.json（一次情報）→ LEGACY_USE の同じ並び順（対応表に
-    無い技だけのフォールバック）→ どちらにも無ければ警告して英語名のまま残す。
+    対応表 data/move_names_en_ja.json が一次情報で、無ければ警告して英語名のまま残す。
     黙って技を落とすと、その技を計算に使わないぶん被弾が過小評価される。
-    翻訳はできたが技データ（MOVES）に無い日本語名は missing_moves に集めてビルドを止める。"""
-    legacy = LEGACY_USE.get(display_name, {}).get('moves', [])
+    翻訳はできたが技データ（MOVES）に無い日本語名は missing_moves に集めてビルドを止める。
+
+    以前は旧使用率シートの「同じ並び順」を最後の砦にしていたが、月が変わると技の順番が
+    変わるので別の技名を拾いかねない。当てにならない上に実際に一度も使われていなかったため、
+    CSV移行にあわせて外した。"""
     out = []
-    for i, mv in enumerate(entry['moves']):
+    for mv in entry['moves']:
         name_en = mv['name']
         ja = MOVE_NAME_EN_JA.get(name_en)
-        if not ja and i < len(legacy):
-            ja = legacy[i].split(' (')[0]
         if not ja:
             translation_warnings.add(name_en)
             ja = name_en
@@ -325,14 +325,14 @@ def build_threats():
     if unresolved_pokemon or unresolved_region or missing_moves:
         lines = ['使用率データの取り込みに失敗しました:']
         if unresolved_pokemon:
-            lines.append('  図鑑に無いポケモン（新規解禁の可能性。data/ポケモン図鑑.xlsx に追加してください）:')
+            lines.append('  図鑑に無いポケモン（新規解禁の可能性。data/dex.csv に行を追加してください）:')
             lines += [f'    {x}' for x in unresolved_pokemon]
         if unresolved_region:
             lines.append('  リージョンフォームが解決できない'
                          '（図鑑にその形態を追加するか engine.REGION_KEYWORD を見直してください）:')
             lines += [f'    {x}' for x in unresolved_region]
         if missing_moves:
-            lines.append('  技データシートに無い技（data/ポケモン図鑑.xlsx の技データに行を追加してください）:')
+            lines.append('  技データに無い技（data/moves.csv に行を追加してください）:')
             lines += [f'    {x}' for x in sorted(missing_moves)]
         print('\n'.join(lines))
         sys.exit(1)
