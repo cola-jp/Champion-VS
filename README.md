@@ -5,25 +5,34 @@
 **https://cola-jp.github.io/Champion-VS/**
 
 相手のポケモン名を数文字打つと、自分のパーティ全員の最大打点・確定何発・被弾がまとめて出る。
-対戦中にスマホやサブモニタで開く用途。オフラインでも動く単一HTML。
+対戦中にスマホやサブモニタで開く用途。オフラインでも動く。
+
+- `index.html` … ダメージ表。登録したパーティで計算する
+- `party.html` … パーティー登録画面。取り込み・調整・書き出し
+
+## パーティを変更する
+
+`party.html` を開いて編集する。`party.txt` 形式のテキストを貼り付けて取り込み、
+画面上で調整して「保存」すると、ダメージ表がそのパーティで計算される。
+`party.txt` としてダウンロードもできる。
+
+実数値は**ゲーム内のステータス画面に表示される値**（メガシンカ前）をそのまま書く。
+持ち物がメガストーンならメガ形態は自動で生成される。能力ポイントは実数値・種族値・性格から
+逆算され、合わない値を入れるとその場でエラーになる。
+
+リポジトリの `party.txt` は、まだ何も登録していないときに使われる既定値。
 
 ## ビルド
 
 ```bash
 pip install openpyxl
-python build/generate.py
+python build/generate.py         # データの整合性を確認
+python build/export_app_data.py  # ブラウザが読む appdata/*.json を書き出す
+node build/verify_engine.js      # JS版がPython版と同じ数値を出すか確認
 ```
 
-`index.html` が上書きされる。生成物なので直接編集しない。
-
-## パーティを変更する
-
-`build/party.py` の `PARTY` を編集してビルドし直す。
-`ev` は能力ポイント表記（1ポイント = 努力値8、合計66まで）。
-
-メガ形態は `species` にメガ側の名前（例: `メガギャラドス`）を指定すること。
-ゲーム内のステータス画面はメガシンカ前の数値を表示するので、そのまま写すと間違える。
-generate.py が実数値を自動検証するので、設定ミスならビルドが止まる。
+`appdata/*.json` は生成物。直接編集しない。作り直したらコミットすること
+（CI がコミット済みのものと一致するかを見ている）。
 
 ## データを更新する
 
@@ -31,7 +40,7 @@ generate.py が実数値を自動検証するので、設定ミスならビル�
    取得元は pkmnchamps.com のAPIレスポンス
    （`action=list&regulation=reg_mb&month=YYYY-MM&format=singles`）。
    ブラウザで開いて保存すればよい。自動取得の仕組みは無い。
-2. `python build/generate.py` を実行する。
+2. `python build/generate.py` と `python build/export_app_data.py` を実行する。
 3. 警告（`data/move_names_en_ja.json に無い技があります`）が出たら、該当の技を
    `data/move_names_en_ja.json` に追記する（英語技名 → 日本語技名）。
    ビルドがエラーで止まった場合（図鑑に無いポケモン／リージョンフォーム未解決／技データに無い技）は、
@@ -58,7 +67,8 @@ python build/extract_abilities.py
 ## 公開
 
 main ブランチのルートを GitHub Pages が配信している。
-`index.html` を push すれば1〜3分で反映される。URLは変わらない。
+push すれば1〜3分で反映される。URLは変わらない。
+`index.html` / `party.html` / `assets/` / `appdata/` が揃っている必要がある。
 
 ## 詳細
 

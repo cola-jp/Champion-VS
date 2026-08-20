@@ -1,0 +1,80 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#12151d">
+<title>パーティー登録 — 対面ダメージ表</title>
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<header><div class="bar">
+  <h1>パーティー登録</h1>
+  <span class="count" id="count"></span>
+  <a class="navlink primary" href="index.html">ダメージ表へ</a>
+</div></header>
+
+<main>
+  <div id="flash" hidden></div>
+  <div id="status" class="pstat"></div>
+
+  <div class="cols">
+    <!-- 取り込み／書き出し -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <section class="panel">
+        <h2>取り込み</h2>
+        <div class="body">
+          <p class="hint">
+            1体につき4行、空行区切り。<code>#</code> で始まる行はコメント。<br>
+            実数値は<b>ゲーム内のステータス画面に表示される値</b>（メガシンカ前）をそのまま書く。
+            持ち物がメガストーンなら、メガ形態は自動で生成される。
+          </p>
+          <textarea id="src" class="fmt" spellcheck="false" placeholder="ギャラドス @ ギャラドスナイト
+ようき / いかく
+171-177-100-72-120-146
+たきのぼり / じしん / パワーウィップ / りゅうのまい"></textarea>
+          <div class="btnrow">
+            <button class="act" id="apply">この内容を読み込む</button>
+            <label class="act" style="display:inline-flex;align-items:center">
+              ファイルを選択<input type="file" id="file" accept=".txt,text/plain" hidden>
+            </label>
+            <button class="act" id="reset">既定に戻す</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>書き出し</h2>
+        <div class="body">
+          <p class="hint">保存するとこのブラウザに記録され、ダメージ表がこのパーティで計算される。
+            ダウンロードすると <code>party.txt</code> として取り出せる。</p>
+          <div class="btnrow">
+            <button class="act primary" id="save">保存してダメージ表に反映</button>
+            <button class="act" id="download">party.txt をダウンロード</button>
+          </div>
+          <div class="preview" id="preview"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 1体ずつの調整 -->
+    <section class="panel">
+      <h2>調整</h2>
+      <div class="body">
+        <div id="list" style="display:flex;flex-direction:column;gap:11px"></div>
+        <div class="btnrow"><button class="act" id="add">1体追加</button></div>
+        <p class="hint">
+          能力ポイントは実数値・種族値・性格から逆算している。<b>1ポイントで実数値がちょうど1上がる</b>ので
+          解は一意に決まり、合わない値を入れるとその場でエラーになる。
+          取りうる値も併せて出るので、書き写しのミスはそこで分かる。
+        </p>
+      </div>
+    </section>
+  </div>
+</main>
+
+<datalist id="dl-pokemon"></datalist>
+<datalist id="dl-moves"></datalist>
+<datalist id="dl-nature"></datalist>
+
+<script src="assets/engine.js"></script>
+<script src="assets/store.js"></script>
+<script src="assets/party.js"></script>
+</body></html>

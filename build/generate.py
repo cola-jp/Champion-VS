@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-対面ダメージ表 index.html を生成する。
+相手の型を作り、ダメージを計算する。データの整合性チェックもここ。
 
-    python build/generate.py
+    python build/generate.py        データを検証する（生成物は作らない）
 
-data/ 配下のデータと build/party.py のパーティ定義を読み、リポジトリ直下に index.html を書き出す。
-生成物は編集しないこと。中身を変えたいときは party.py かこのスクリプトを直す。
+以前はここで index.html を書き出していたが、表示はブラウザ側（assets/app.js）に移した。
+このモジュールは相手の型を組む処理（配分の集約・メガ形態の判定・リージョンフォーム・
+マルチスケイルやへんげんじざいの行分割）と、ダメージ計算の本体を持つ。
+ブラウザが読む JSON は build/export_app_data.py がここを呼んで書き出す。
+
+JS 側（assets/engine.js）はこの計算の移植版。数字を変えたら
+appdata/golden.json を作り直して node build/verify_engine.js を通すこと。
 """
-import html
-import json
 import os
 import sys
 
@@ -511,142 +514,6 @@ def build_members():
     return out
 
 
-# ---------------------------------------------------------------- HTML出力
-
-def bar(pl, ph, color):
-    a, b = min(pl, 100), min(ph, 100)
-    return (f'<div class="trk"><div class="half"></div>'
-            f'<div class="fill hi" style="width:{b}%;background:{color}"></div>'
-            f'<div class="fill" style="width:{a}%;background:{color}"></div></div>')
-
-
-def render_row(member, threat, hp_eff, row_class=''):
-    """味方1体分の <tr> を返す。hp_eff は判定・%の分母に使う相手のHP（Noneなら最大HP）。
-    ステルスロック込みの表はここに「最大HP - SRダメージ」を渡して作る。
-    HPが減れば主表示する技そのものが変わりうる（弱い技で確1が取れるようになる等）ので、
-    タグを足すのではなく行をまるごと作り直す。"""
-    hits = [my_hit(member, mv, threat, hp_eff) for mv in member['moves']]
-    primary, alt = choose_move(hits)
-    if not primary:
-        return ''
-    vclass, vcolor = VERDICT_CLASS.get(primary['verdict'], ('v5', 'var(--weak)'))
-    back = their_hit(threat, member)
-    danger = ' dg' if back['ph'] >= 100 else ''
-    # 低採用の技が主要技を上回るときだけ補足を出す。赤字（確定1発される）判定は
-    # 主要技の方で決める。滅多に来ない技で身構えないための切り分け。
-    back_sub = ''
-    if back.get('rare'):
-        r = back['rare']
-        cls = 'rare hot' if r['ph'] >= 100 else 'rare'
-        back_sub = (f'<div class="{cls}">低採用 <b>{r["move"]}</b>'
-                    f'（{r["usage"]:.0f}%） {r["ph"]}%</div>')
-    faster = member['speed'] > threat['speed']
-
-    tags = ''
-    if primary.get('ab_name'):
-        tags += (f' <span class="abm">{primary["ab_name"]}×{primary["ab_mult"]}</span>')
-    if primary['move'] in DRAWBACK_MOVES:
-        tags += ' <span class="rl">反動</span>'
-    if primary.get('acc'):
-        tags += f' <span class="ac">命中{primary["acc"]:.0f}%</span>'
-    ohko = [h for h in hits if h and h.get('ohko')]
-    if ohko:
-        tags += f' <span class="ohko">＋{ohko[0]["move"]} {ohko[0]["acc"]:.0f}%</span>'
-
-    sub = ''
-    if alt:
-        atags = ''
-        if alt.get('ab_name'):
-            atags += f' <span class="abm">{alt["ab_name"]}×{alt["ab_mult"]}</span>'
-        if alt['move'] in DRAWBACK_MOVES:
-            atags += ' <span class="rl">反動</span>'
-        if alt.get('acc'):
-            atags += f' <span class="ac">命中{alt["acc"]:.0f}%</span>'
-        cls = 'alt up' if VERDICT_RANK[alt['verdict']] > VERDICT_RANK[primary['verdict']] else 'alt'
-        sub += (f'<div class="{cls}">{alt["move"]}{atags}: '
-                f'{alt["pl"]}-{alt["ph"]}% {alt["verdict"]}</div>')
-    boosted = boosted_hit(member, threat, hp_eff)
-    if boosted:
-        sub += (f'<div class="d1">{member["boosting_move"]}+1: {boosted["move"]} '
-                f'{boosted["pl"]}-{boosted["ph"]}% {boosted["verdict"]}</div>')
-
-    form_label = f'<small>{member["form"]}</small>' if member['form'] else ''
-    cls = ' '.join(c for c in ('nonmega' if member['form'] == '非メガ' else '', row_class) if c)
-    return (
-        f'<tr class="{cls}">'
-        f'<td class="me">{member["name"]}{form_label}'
-        f'<span class="spd {"up" if faster else "dn"}">{"先手" if faster else "後手"}</span></td>'
-        f'<td class="hit"><b>{primary["move"]}</b> {primary["lo"]}-{primary["hi"]} '
-        f'<span class="mul">×{primary["eff"]}</span>{tags}{sub}</td>'
-        f'<td class="barcell">{bar(primary["pl"], primary["ph"], vcolor)}</td>'
-        f'<td class="vdcell"><span class="vd {vclass}">{primary["verdict"]}</span></td>'
-        f'<td class="pct">{primary["pl"]}-{primary["ph"]}%</td>'
-        f'<td class="back{danger}">被弾 <b>{back["move"]}</b> {back["ph"]}%{back_sub}</td></tr>')
-
-
-def render_card(threat, members, card_id):
-    tc = TYPE_COLOR.get(threat['types'][0], '#666')
-    type_label = threat['types'][0] + (f"/{threat['types'][1]}" if threat['types'][1] else '')
-    sr_dmg = sr_damage(threat)
-
-    chips = ''
-    if sr_dmg:
-        chips += f'<span class="pat sr-chip">SR -{sr_dmg}</span>'
-    if threat['multi']:
-        chips += f'<span class="pat">{threat["pattern"]} {threat["share"]}%</span>'
-    if threat['form']:
-        chips += f'<span class="pat alt">{threat["form"]}</span>'
-    if threat['hp_full'] is True:
-        chips += '<span class="pat alt">マルチスケイル有効</span>'
-    if threat['hp_full'] is False:
-        chips += '<span class="pat ms-off">マルチスケイル解除</span>'
-    if threat['protean'] is True:
-        chips += '<span class="pat alt">へんげんじざい発動</span>'
-    if threat['protean'] is False:
-        chips += '<span class="pat ms-off">へんげんじざい未発動</span>'
-
-    move_chips = ''
-    for raw in threat['moves_raw'][:8]:
-        nm = raw.split(' (')[0]
-        pct = raw.split(' (')[1].rstrip('%)') if ' (' in raw else ''
-        m = MOVES.get(nm)
-        is_attack = m and m['power']
-        extra = f' {MULTI_HIT[nm]}' if nm in MULTI_HIT else ''
-        label = f'<b>{nm}</b>' if is_attack else nm
-        move_chips += (f'<span class="mv{"" if is_attack else " st"}">{label} '
-                       f'<i>{pct}%{extra}</i></span>')
-
-    # SR無しとSR込みの両方の行を静的に書き出しておき、表示はCSSのクラス付け替えで切り替える。
-    # 値が同じになる行（SRが入らない相手、判定も%も動かない行）は1本にまとめる。
-    # そうしないとファイルが倍近くに膨らむ上、切り替えても何も変わらない行が半分を占める。
-    hp_sr = max(threat['st'][0] - sr_dmg, 1)
-    rows = ''
-    for member in members:
-        plain = render_row(member, threat, None)
-        with_sr = render_row(member, threat, hp_sr) if sr_dmg else plain
-        if with_sr == plain:
-            rows += plain
-        else:
-            rows += (render_row(member, threat, None, 'sr0')
-                     + render_row(member, threat, hp_sr, 'sr1'))
-
-    st = threat['st']
-    return (
-        f'<section class="card" id="{card_id}" data-n="{html.escape(threat["name"])}" '
-        f'style="--tc:{tc}">'
-        f'<div class="chead"><span class="rk">#{threat["rank"]}</span>'
-        f'<span class="nm">{html.escape(threat["name"])}</span>{chips}'
-        f'<span class="tag">{type_label}・<b{" class=off" if threat["hp_full"] is False else ""}>'
-        f'{ABILITY_JA.get(threat["ability"], threat["ability"])}</b>・'
-        f'{threat["item"]}・{threat["nature"]}</span>'
-        f'<span class="stats">H<b>{st[0]}</b> A<b>{st[1]}</b> B<b>{st[2]}</b> C<b>{st[3]}</b> '
-        f'D<b>{st[4]}</b> S<b>{threat["speed"]}</b>{"★" if threat["scarf"] else ""}</span>'
-        f'<a class="top" href="#idx">↑</a></div>'
-        f'<div class="mvrow">{move_chips}</div>'
-        f'<table><thead><tr><th>味方</th><th>最大打点</th><th>ダメージ</th>'
-        f'<th>判定</th><th>%</th><th>被弾</th></tr></thead><tbody>{rows}</tbody></table></section>')
-
-
 EXPECTED = {
     'ギャラドス': {'メガ': [171, 207, 130, 81, 150, 146], '非メガ': [171, 177, 100, 72, 120, 146]},
     'キラフロル': {'': [159, 67, 111, 182, 101, 151]},
@@ -672,67 +539,17 @@ def verify(members):
 
 
 def main():
+    """データの整合性を確かめる。以前はここで index.html を書き出していたが、
+    表示はブラウザ側（assets/app.js）に移したので、生成物は作らない。
+    パーティの実数値検証・図鑑や技の欠落・特性の未分類は、build_threats() と
+    verify() の中でチェックしてエラーや警告を出す。
+    ブラウザが読む JSON は build/export_app_data.py が書き出す。"""
     members = build_members()
     verify(members)
     threats = build_threats()
-
-    cards, index_links = [], []
-    for i, t in enumerate(threats):
-        cid = f'p{i}'
-        label = t['name']
-        if t['multi']:
-            label += ' ' + t['pattern']
-        if t['form']:
-            label += ' ' + t['form']
-        if t['hp_full'] is True:
-            label += ' MS有効'
-        if t['hp_full'] is False:
-            label += ' MS解除'
-        if t['protean'] is True:
-            label += ' 変幻発動'
-        if t['protean'] is False:
-            label += ' 変幻未発動'
-        color = TYPE_COLOR.get(t['types'][0], '#666')
-        index_links.append(f'<a href="#{cid}" style="--tc:{color}">{html.escape(label)}</a>')
-        cards.append(render_card(t, members, cid))
-
-    css = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'style.css'),
-               encoding='utf-8').read()
-    js = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.js'),
-              encoding='utf-8').read()
-
-    doc = f'''<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#12151d"><meta name="apple-mobile-web-app-capable" content="yes">
-<title>対面ダメージ表</title><style>{css}</style></head><body>
-<header><div class="bar"><h1>対面ダメージ表</h1>
-<span id="tools" hidden style="display:contents">
-<input id="q" type="search" placeholder="相手の名前（ガブ / ミミ / ブリジュ…）"
- autocomplete="off" autocorrect="off" autocapitalize="off">
-<span class="tgs"><button class="tg" id="tM" aria-pressed="true">非メガも表示</button><button class="tg" id="tS" aria-pressed="false">SR設置済み</button></span>
-<span class="count" id="cnt"></span></span>
-</div></header>
-<main>
-<nav id="idx"><span class="lbl">目次 — タップで移動（{len(index_links)}件）</span>{''.join(index_links)}</nav>
-{''.join(cards)}
-<p class="note">メガシンカ後の実数値で計算。天候・いかく・積みは未計算（積み技は各行に併記）。
-型の%は判明している配分の中での比率。★はこだわりスカーフ込みの素早さ。
-バーは相手のHP全体に対するダメージ幅で、濃い部分が最低乱数、薄い部分が最高乱数。中央の線が50%。<br>
-技は判定が同じならデメリットのない方を優先して表示している。2行目は次善の選択肢で、
-<span style="color:#7fd4ff">水色は判定が上がる技</span>。「反動」は撃った次のターンに交代できない技。
-「命中◯%」は必中でない技。<br>
-「SR設置済み」は自分がステルスロックを撒いてある状態への切り替え。相手が場に出た時点で
-最大HP×いわ相性/8のダメージを受けている前提になり、判定・%・バーはすべて残りHPに対する値に変わる
-（マジックガードは無効。ひこうタイプにも入る）。切り替えで数値が動かない行はそのまま表示される。
-自分側の被弾%には反映していない（相手が撒いてくるかは事前に分からないため）。</p>
-</main>
-<script>{js}</script></body></html>'''
-
-    out = os.path.join(ROOT, 'index.html')
-    with open(out, 'w', encoding='utf-8') as f:
-        f.write(doc)
-    print(f'書き出し完了: {out}')
-    print(f'  相手 {len(threats)} 行 / 味方 {len(members)} 体 / {len(doc) // 1024} KB')
+    print('検証完了')
+    print(f'  相手 {len(threats)} 行 / 味方 {len(members)} 体')
+    print('  ブラウザ用データを作るには: python build/export_app_data.py')
 
 
 if __name__ == '__main__':

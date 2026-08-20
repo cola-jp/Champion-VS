@@ -82,16 +82,10 @@ tbody tr:last-child{border-bottom:0}
 .ohko{font-size:11px;color:var(--rng);font-weight:700}
 .note{color:var(--ink3);font-size:12px;padding:6px var(--pad) 0;max-width:1400px;margin:0 auto;line-height:1.65}
 .card.hide{display:none}
-/* ステルスロック切り替え。SR無し(.sr0)とSR込み(.sr1)の行を両方とも静的に書き出してあり、
-   ここでの表示切り替えだけで見せ分ける（JSでダメージを再計算しない）。
-   既定は .sr1 を隠す = JSが動かない環境ではSR無しの表がそのまま読める。 */
-tr.sr1{display:none}
-body.sron tr.sr0{display:none}
-body.sron tr.sr1{display:table-row}
-.sr-chip{display:none;background:#7a3b46;color:#ffd9df}
-body.sron .sr-chip{display:inline}
-/* 非メガ非表示はSRのどちらの状態でも優先する */
-tr.nonmega.hide{display:none!important}
+/* ステルスロック設置中の目印。SR切り替えは行を再計算して描き直すので、
+   出ているときだけこのチップが付く。 */
+.sr-chip-on{background:#7a3b46;color:#ffd9df}
+tr.nonmega.hide{display:none}
 @media (max-width:760px){
 :root{--pad:11px}
 body{font-size:14px}
@@ -108,8 +102,6 @@ main{padding:10px var(--pad);gap:10px}
 thead{display:none}
 table,tbody,tr,td{display:block;width:100%}
 tbody tr{padding:9px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:center}
-tr.sr1{display:none}
-body.sron tbody tr.sr1{display:grid}
 td{padding:0}
 .me{grid-column:1;grid-row:1;font-size:15px}
 .vdcell{grid-column:2;grid-row:1;justify-self:end}
@@ -121,3 +113,80 @@ td{padding:0}
 .chead{position:relative}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+
+/* ============================================================ 複数ページ化で追加した分 */
+.navlink{background:var(--surface2);border:1px solid var(--line);color:var(--ink2);
+padding:9px 12px;border-radius:7px;font-size:12.5px;text-decoration:none;white-space:nowrap}
+.navlink:hover,.navlink:focus{color:var(--ink);background:#2b3142;outline:none}
+.navlink.primary{background:var(--rng);border-color:var(--rng);color:#151515;font-weight:700}
+
+/* パーティの状態表示（どのパーティで計算しているか） */
+.pstat{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 13px;
+background:var(--surface);border:1px solid var(--line);border-radius:10px;font-size:12.5px;color:var(--ink2)}
+.pstat b{color:var(--ink);font-weight:700}
+.pstat .who{background:var(--surface2);border-radius:5px;padding:2px 7px;font-size:12px}
+.pstat.warn{border-color:#5a4a3a;background:#211c18;color:#f2d9b8}
+
+/* 空状態・エラー */
+.empty{padding:34px 22px;text-align:center;background:var(--surface);
+border:1px solid var(--line);border-radius:11px;color:var(--ink2)}
+.empty h2{font-size:17px;color:var(--ink);margin-bottom:8px}
+.empty p{font-size:13.5px;margin-bottom:16px;line-height:1.7}
+.err{background:#2a1a1e;border:1px solid #5a3038;color:#ffb3bc;padding:11px 14px;
+border-radius:9px;font-size:13px;white-space:pre-wrap;line-height:1.7}
+.err b{color:#ff8f9c}
+.okmsg{background:#16281f;border:1px solid #2b5340;color:#8fe3b6;padding:10px 14px;
+border-radius:9px;font-size:13px}
+
+/* ============================================================ パーティー登録画面 */
+.cols{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:900px){.cols{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.panel>h2{font-size:12px;letter-spacing:.12em;color:var(--ink3);font-weight:800;
+padding:11px 14px;border-bottom:1px solid var(--line);background:#161a24}
+.panel>.body{padding:13px 14px;display:flex;flex-direction:column;gap:11px}
+.hint{font-size:12px;color:var(--ink3);line-height:1.7}
+.hint code{background:var(--surface2);padding:1px 5px;border-radius:4px;color:var(--ink2);font-size:11.5px}
+textarea.fmt{width:100%;min-height:250px;background:#0e1119;border:1px solid var(--line);
+color:var(--ink);border-radius:8px;padding:11px 13px;font-family:ui-monospace,Consolas,monospace;
+font-size:13px;line-height:1.75;resize:vertical}
+textarea.fmt:focus{outline:2px solid var(--rng);outline-offset:1px}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+button.act{background:var(--surface2);border:1px solid var(--line);color:var(--ink);
+padding:10px 14px;border-radius:7px;font:inherit;font-size:13px;cursor:pointer;min-height:40px}
+button.act:hover{background:#2b3142}
+button.act.primary{background:var(--ko);border-color:var(--ko);color:#0c1a12;font-weight:700}
+button.act.primary:hover{filter:brightness(1.08)}
+button.act:disabled{opacity:.45;cursor:not-allowed}
+
+/* 1体分の編集カード */
+.mon{border:1px solid var(--line);border-radius:10px;background:var(--surface2);overflow:hidden}
+.mon.bad{border-color:#5a3038}
+.mhead{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 12px;
+border-left:5px solid var(--tc,#666);background:linear-gradient(90deg,color-mix(in srgb,var(--tc) 16%,transparent),transparent 60%)}
+.mhead .idx{color:var(--ink3);font-size:11.5px;font-weight:800}
+.mhead .mname{font-size:15.5px;font-weight:800}
+.mhead .mtype{font-size:11.5px;color:var(--ink2)}
+.mhead .sp{margin-left:auto;display:flex;gap:5px}
+.mbody{padding:11px 12px;display:grid;gap:9px}
+.f{display:grid;grid-template-columns:64px minmax(0,1fr);gap:9px;align-items:center}
+.f>label{font-size:11.5px;color:var(--ink3);font-weight:700}
+.f input,.f select{background:#0e1119;border:1px solid var(--line);color:var(--ink);
+border-radius:6px;padding:8px 10px;font:inherit;font-size:13.5px;min-width:0;width:100%}
+.f input:focus,.f select:focus{outline:2px solid var(--rng);outline-offset:1px}
+.f input.bad{border-color:#7a3b46;background:#1e1418}
+.sixin{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}
+.sixin>div{display:flex;flex-direction:column;gap:3px}
+.sixin label{font-size:10.5px;color:var(--ink3);font-weight:800;text-align:center}
+.sixin input{text-align:center;padding:7px 3px;font-size:13.5px}
+.movein{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+.evline{font-size:11.5px;color:var(--ink3);display:flex;gap:9px;flex-wrap:wrap}
+.evline b{color:var(--ink2);font-weight:700}
+.evline .over{color:var(--danger);font-weight:700}
+.monerr{font-size:12px;color:#ffb3bc;background:#241419;border-top:1px solid #4a2830;
+padding:8px 12px;line-height:1.65;white-space:pre-wrap}
+.mini{font-size:11px;padding:5px 9px;min-height:0;border-radius:6px}
+.preview{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.7;
+background:#0e1119;border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+white-space:pre-wrap;color:var(--ink2);max-height:300px;overflow:auto}
+datalist{display:none}

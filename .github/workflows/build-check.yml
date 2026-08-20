@@ -16,10 +16,20 @@ jobs:
         with:
           python-version: '3.x'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - run: pip install openpyxl
 
-      - name: party.txt / データ整合性チェック込みでビルド
+      - name: データの整合性を確認（party.txt・図鑑・技・特性）
         run: python build/generate.py
 
-      - name: index.html がコミット済みのものと一致するか確認
-        run: git diff --exit-code index.html
+      - name: ブラウザ用データを書き出す
+        run: python build/export_app_data.py
+
+      - name: appdata/ がコミット済みのものと一致するか確認
+        run: git diff --exit-code appdata/
+
+      - name: JS移植がPython版と同じ数値を出すか確認
+        run: node build/verify_engine.js

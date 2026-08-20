@@ -1,0 +1,54 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<title>エンジン自己検証</title>
+<style>
+body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",system-ui,sans-serif;
+background:#12151d;color:#e8ecf5;padding:24px;line-height:1.6}
+h1{font-size:16px;letter-spacing:.1em;color:#98a1b8;margin-bottom:16px}
+#out{white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+.ok{color:#39d98a;font-weight:700}.ng{color:#ff5d6c;font-weight:700}
+</style></head><body>
+<h1>エンジン自己検証 — appdata/golden.json との突き合わせ</h1>
+<div id="out">読み込み中…</div>
+<script src="assets/engine.js"></script>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  const log = (s, cls) => {
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = s;
+    out.appendChild(d);
+  };
+  try {
+    const names = ['dex', 'moves', 'types', 'rules', 'threats', 'golden'];
+    const loaded = {};
+    for (const n of names) {
+      const r = await fetch(`appdata/${n}.json`);
+      if (!r.ok) throw new Error(`appdata/${n}.json が読めません (${r.status})`);
+      loaded[n] = await r.json();
+    }
+    out.textContent = '';
+    Engine.load(loaded);
+    const t0 = performance.now();
+    const res = Engine.selfTest(loaded.golden, loaded.threats);
+    const ms = (performance.now() - t0).toFixed(0);
+
+    log(`相手 ${loaded.threats.length} 行 / 期待値 ${loaded.golden.rows.length} 行`);
+    log(`突き合わせた項目: ${res.checked} 件  (${ms}ms)`);
+    if (res.issues.length === 0) {
+      log('一致: Python版と完全に同じ数値が出ています', 'ok');
+    } else {
+      log(`不一致 ${res.issues.length} 件:`, 'ng');
+      res.issues.slice(0, 40).forEach(i => log('  ' + i, 'ng'));
+      if (res.issues.length > 40) log(`  … 他 ${res.issues.length - 40} 件`, 'ng');
+    }
+    window.__result = res;
+  } catch (e) {
+    out.textContent = '';
+    log('エラー: ' + e.message, 'ng');
+    log(e.stack || '');
+    window.__result = { error: e.message };
+  }
+})();
+</script>
+</body></html>

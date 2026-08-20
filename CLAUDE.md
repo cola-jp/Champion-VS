@@ -13,26 +13,40 @@ data/特性の効果.pdf         育成考察Wikiの特性一覧ページ。特�
 data/abilities_ja.json     上のPDFから抽出した特性名 → 効果（240件）。計算には使わない参照用
 build/extract_abilities.py 特性の効果.pdf → abilities_ja.json の変換。PDFを更新した時だけ流す
 party.txt                  自分のパーティ定義。ゲーム内のステータス画面を見ながらここを編集する
-build/engine.py             データ読み込み・実数値計算・ダメージ計算
+build/engine.py             データ読み込み・実数値計算・タイプ相性・特性
 build/party.py              party.txt を読んで PARTY を組み立てるローダー。直接は編集しない
-build/generate.py           index.html を生成するビルドスクリプト
-build/style.css             生成物に埋め込まれるCSS
-build/app.js                生成物に埋め込まれるJS（検索の絞り込みと表示トグルのみ。計算はしない）
-index.html                  生成物。GitHub Pagesで公開される。直接編集しない
+build/generate.py           相手の型を組む処理とダメージ計算。整合性チェックの入口
+build/export_app_data.py    ブラウザが読む appdata/*.json を書き出す
+build/verify_engine.js      JS移植がPython版と同じ数値を出すか確認する（node で実行）
+appdata/*.json              生成物。ブラウザ用のデータ。直接編集しない
+index.html                  ダメージ表。登録したパーティで計算する
+party.html                  パーティー登録画面。取り込み・調整・書き出し
+assets/engine.js            ダメージ計算（Python版からの移植）
+assets/app.js               ダメージ表の描画
+assets/party.js             パーティー登録画面
+assets/store.js             登録したパーティの保存（localStorage）
+assets/style.css            共通のCSS
 ```
+
+ビルドと検証:
+
+```bash
+pip install openpyxl
+python build/generate.py         # データの整合性を確認（生成物は作らない）
+python build/export_app_data.py  # appdata/*.json を書き出す
+node build/verify_engine.js      # JS移植がPython版と一致するか確認
+```
+
+`appdata/` を作り直したらコミットすること。CI が「コミット済みのものと一致するか」を見ている。
 
 パーティの構成を変えるときは `party.txt` をゲーム内のステータス画面を見ながら編集する
 （`build/party.py` は直接触らない）。書き方は `party.txt` 冒頭のコメントを参照。
 能力ポイントは実数値・種族値・性格から自動で逆算され、入力ミスはビルド時にエラーで止まる。
 
-ビルド:
+パーティは `party.html`（ブラウザ上の登録画面）でも編集できる。登録内容は localStorage に
+`party.txt` と同じテキストのまま入る。リポジトリの `party.txt` は未登録時の既定値。
 
-```bash
-pip install openpyxl
-python build/generate.py
-```
-
-`index.html` は毎回まるごと上書きされる。**生成物を直接編集しても次のビルドで消える。**
+**`appdata/*.json` は生成物。直接編集しても次の書き出しで消える。**
 
 公開先: https://cola-jp.github.io/Champion-VS/ （main ブランチのルートを GitHub Pages が配信）
 
@@ -180,19 +194,41 @@ A振り型の比率26%がドラゴナイト非採用率26%と一致する。`gen
     （全行を二重に出すとファイルが倍近くになるため）。
   - 相手側のHPにのみ適用。自分側の被弾%は未計算（相手が撒くかは事前に分からないため後回し）。
 
-## JavaScriptを前提にしないこと
+## 計算がPythonとJSの2箇所にあること
 
-iOSではローカルHTMLでJSが動かない環境がある。そのため**72件すべてのカードを静的に書き出し**、
-JSは絞り込みと表示の切り替え（検索・非メガ・SR設置済み）だけを担当する。
-**JSに計算をさせないこと。** 出し分けが必要な数値は両方とも書き出しておき、
-CSSのクラス付け替えで見せるものを選ぶ。JSが動かない場合は検索欄とトグルが消え、
-目次と既定の表（SR無し・非メガ込み）がそのまま読める。
-この構造は崩さないこと。新機能を足すときも、JSなしで内容が読める状態を保つ。
+登録したパーティに応じてブラウザ側で計算するようになったので、ダメージ計算は
+**Python（`build/generate.py`）と JS（`assets/engine.js`）の両方に存在する**。
+これは二重管理だが、どちらも必要:
+
+- Python … 相手の型を組む処理（配分の集約・メガ判定・リージョンフォーム・行分割）と、
+  xlsx/JSON の読み込み。ブラウザには結果だけ `appdata/*.json` で渡す。
+- JS … 登録されたパーティに対する計算。パーティが変わるたびに動くのでブラウザ側に要る。
+
+**片方だけ直すと必ず食い違う。** それを検出するために `appdata/golden.json` に
+Python で計算した期待値（現行 party.txt の全行）を置いてあり、
+`node build/verify_engine.js` で全件突き合わせる。CI でも流している。
+数字に関わるコードを触ったら、必ず `export_app_data.py` → `verify_engine.js` の順に通すこと。
+
+移植で踏みやすい違い:
+
+- Python の `int()` は0方向への切り捨て。JS は `Math.trunc`（`Math.round` ではない）。
+- **Python の `round()` はちょうど .5 を偶数側に寄せる。** JS の `Math.round` は切り上げなので、
+  そのまま使うと %表示が1ずれる。`Engine.pyRound()` を使うこと。
+- JSON にすると `1.0` が `1` になる。倍率の表示は `mult()` で桁を戻している。
+- 特性テーブルは「先頭から順に最初に一致したものを返す」ので、順序が変わると挙動が変わる。
+  JSON では配列で渡して順序を保っている。
+
+## 前提が変わった経緯
+
+以前は「iOSでローカルHTMLのJSが動かない環境がある」ため、全カードを静的に書き出して
+JSなしで読める構造を保っていた。パーティー登録機能を入れるにあたってこの前提は破棄され、
+JSの使用と複数ファイル構成が許可された。**JSなしで読める状態を保つ必要はもう無い。**
 
 ## コーディングの約束
 
 - 出力は日本語。ポケモン名・技名・特性名も日本語で統一する。
-- 外部CDNを使わない。`index.html` 単体で完結させる（オフラインで開くため）。
-- 数値を変えたら必ず `python build/generate.py` を通し、実数値の自動検証が通ることを確認する。
-- 新しい計算ロジックを足すときは、既存の `index.html` との差分を取って、
-  意図した箇所だけが変わっているか確かめる。
+- 外部CDNを使わない（オフラインで開くため）。ライブラリは足さない。
+- 数値を変えたら `python build/generate.py` で実数値の自動検証を通し、
+  `python build/export_app_data.py` → `node build/verify_engine.js` で
+  JS版と一致することを確認する。
+- 表示を変えたときは、ブラウザで実際に開いて確かめる。
