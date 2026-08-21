@@ -57,7 +57,12 @@
     ].join('\n');
   }
 
-  const entriesToText = list => list.map(entryToBlock).join('\n\n') + '\n';
+  /* 取り込んだテキストの先頭コメント（書式の説明）。書き出すときに戻す。
+     捨ててしまうと、ダウンロードした party.txt から書式の説明が消えてしまう。 */
+  let headerComment = '';
+
+  const entriesToText = list =>
+    headerComment + list.map(entryToBlock).join('\n\n') + '\n';
 
   /* party.txt を読み込む。実数値で書かれているのでポイントに逆算する。
      逆算できない値（そのポケモンでは到達しない実数値）はポイントを空にして、
@@ -304,6 +309,14 @@
   }
 
   function loadText(text) {
+    // 最初の中身の行より前にあるコメントを書式の説明とみなして覚えておく
+    const lines = text.split(/\r?\n/);
+    let end = 0;
+    while (end < lines.length &&
+           (lines[end].trim() === '' || lines[end].trim().startsWith('#'))) end++;
+    const head = lines.slice(0, end).filter(l => l.trim().startsWith('#'));
+    headerComment = head.length ? head.join('\n') + '\n\n' : '';
+
     entries = textToEntries(text);
     $('src').value = text;
     renderList();
