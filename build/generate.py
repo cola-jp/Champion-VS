@@ -21,7 +21,7 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     MOVE_NAME_EN_JA, ABILITIES, fix_move_name, is_mega,
                     PokemonNotFoundError, RegionFormError,
                     stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
-                    self_boost, rank_multiplier)
+                    self_boost, rank_multiplier, multi_damage, verdict_plus_one)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
@@ -126,9 +126,9 @@ ABILITY_HANDLING = {
     'でんきにかえる': '未反映: 次のでんき技が2倍。条件付きなので入れない',
 }
 
-MULTI_HIT = {'スケイルショット': '2〜5回', 'トリプルアクセル': '3回', 'ロックブラスト': '2〜5回',
-             'タネマシンガン': '2〜5回', 'ミサイルばり': '2〜5回', 'つららばり': '2〜5回',
-             'ダブルウイング': '2回'}
+# 連続技の回数表示。技名を並べず技データの効果欄から導く（engine.parse_multi_hit）。
+# 手で並べていた頃は ネズミざん・ドラゴンアロー・みずしゅりけん・ツインビーム が漏れていた。
+MULTI_HIT = {name: m['multi']['label'] for name, m in MOVES.items() if m['multi']}
 
 
 # ---------------------------------------------------------------- 相手の型を作る
@@ -383,17 +383,29 @@ def my_hit(member, move, threat, hp_eff=None):
                               is_sound=(move in SOUND))
     if ab_name == 'ハードロック' and t < 2:
         am = 1.0
-    if ab_name == 'ばけのかわ':
-        am = 1.0
+    disguise = (ab_name == 'ばけのかわ')
+    if disguise:
+        am = 1.0        # 倍率ではなく1回無効なので、ダメージは等倍のまま
     stab = 1.5 if move_type in member['types'] else 1.0
     atk = member['st'][1] if m['cat'] == '物理' else member['st'][3]
     dfn = threat['st'][2] if m['cat'] == '物理' else threat['st'][4]
-    lo, hi = damage(m['power'], atk, dfn, stab, t * am, extra)
+    if m['multi']:
+        lo, hi = multi_damage(m['multi'], m['power'], atk, dfn, stab, t * am, extra)
+    else:
+        lo, hi = damage(m['power'], atk, dfn, stab, t * am, extra)
     hp = threat['st'][0] if hp_eff is None else hp_eff
     # 表示用は「タイプ相性」と「防御特性による補正」を分ける。
     # 両者を掛けた数字だけ出すと、マルチスケイルで半減された2倍が ×1.0 に見えてしまう。
+    v = verdict(lo, hi, hp)
+    if disguise:
+        # 皮で1回止まるぶん、倒すのに必要な手数が1つ増える
+        v = verdict_plus_one(v)
     result = dict(move=move, lo=lo, hi=hi, pl=round(lo * 100 / hp), ph=round(hi * 100 / hp),
-                  eff=t, verdict=verdict(lo, hi, hp))
+                  eff=t, verdict=v)
+    if disguise:
+        result['disguise'] = True
+    if m['multi']:
+        result['hits'] = m['multi']['label']
     if am != 1.0 and ab_name:
         result['ab_name'] = ab_name
         result['ab_mult'] = am
@@ -429,11 +441,42 @@ def boosted_hit(member, threat, hp_eff=None):
 
 def their_hit(threat, member):
     """相手の最大打点（自軍の実数値に対して）。
-    相手の攻撃特性（使用率が最も高いもの＝threat['ability']）を反映する。
+    相手の攻撃特性（使用率が最も高いもの＝threat['ability']）と、
+    自軍の防御特性の両方を反映する。
     補正の掛け方は my_hit と揃える: 威力と攻撃は基礎ダメージ、タイプ一致は stab、
     残りは extra（その他補正）。順番を変えると乱数判定が1〜2ずれる。
-    防御側（自軍）の特性は今のパーティに軽減特性が無いので見ていない。"""
+
+    条件で剥がれる特性の扱い:
+      マルチスケイル … 主表示は満タン時（半減）、剥がれた後を stripped に入れて併記する。
+      ばけのかわ     … 皮がある間はそのターンの攻撃が通らない。0%を主表示にしても
+                       役に立たないので、主表示は皮が剥がれた後の数字にして、
+                       「皮で1回無効」の印を付ける。
+    相手がかたやぶり系ならどちらも無視される。"""
     ability = ABILITY_JA.get(threat['ability'], threat['ability']) or ''
+    mold = any(k in ability for k in ('かたやぶり', 'ターボブレイズ', 'テラボルテージ'))
+    my_ab = member.get('ability') or ''
+    has_ms = ('マルチスケイル' in my_ab) and not mold
+    has_disguise = ('ばけのかわ' in my_ab) and not mold
+
+    def scan(defender_ability_on):
+        return _their_hit_scan(threat, member, ability, mold, defender_ability_on)
+
+    if has_disguise:
+        best = scan(False)                     # 皮が剥がれた後の数字を主表示にする
+        if best['move'] != '—':
+            best['disguise'] = True
+        return best
+    best = scan(True)
+    if has_ms and best['move'] != '—':
+        stripped = scan(False)
+        if stripped['move'] != '—' and stripped['hi'] > best['hi']:
+            best['stripped'] = stripped
+            best['stripped_label'] = 'マルチスケイル解除'
+    return best
+
+
+def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
+    """their_hit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。"""
     main, rare = [], []
     for mv, usage in threat['moves_use'][:8]:
         m = MOVES.get(mv)
@@ -471,14 +514,31 @@ def their_hit(threat, member):
             stab = 1.5 if move_type in threat['types'] else 1.0
 
         t = eff(move_type, *member['types'])
-        if t == 0:
-            continue    # タイプ無効。damage() は最低1を返すので、ここで落とさないと
-                        # 「じしん 1%」のような通らない技が主表示になってしまう
+
+        # 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
+        # ばけのかわは倍率ではないのでここでは触らず、呼び出し側で扱う。
+        am = 1.0
+        if defender_ability_on:
+            am, ab_name = ability_mod(member.get('ability'), move_type, mold,
+                                      hp_full=True, is_sound=(mv in SOUND))
+            if ab_name == 'ハードロック' and t < 2:
+                am = 1.0
+            if ab_name == 'ばけのかわ':
+                am = 1.0
+
+        if t * am == 0:
+            continue    # タイプ相性か特性で通らない技。damage() は最低1を返すので、
+                        # ここで落とさないと「じしん 1%」が主表示になってしまう
         dfn = member['st'][2] if m['cat'] == '物理' else member['st'][4]
-        lo, hi = damage(power, atk, dfn, stab, t, extra)
+        if m['multi']:
+            lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t * am, extra)
+        else:
+            lo, hi = damage(power, atk, dfn, stab, t * am, extra)
         cand = dict(move=mv, lo=lo, hi=hi, usage=usage,
                     pl=round(lo * 100 / member['st'][0]),
                     ph=round(hi * 100 / member['st'][0]))
+        if m['multi']:
+            cand['hits'] = m['multi']['label']
         (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)
 
     # 主表示は採用率が閾値を超える技の中での最大打点。低採用の技しか無いポケモンだけ、

@@ -45,6 +45,8 @@
     const drawback = new Set(R.drawbackMoves);
 
     let tags = '';
+    if (primary.hits) tags += ` <span class="hits">${esc(primary.hits)}</span>`;
+    if (primary.disguise) tags += ' <span class="abm">ばけのかわ+1発</span>';
     if (primary.ab_name) tags += ` <span class="abm">${esc(primary.ab_name)}×${mult(primary.ab_mult)}</span>`;
     if (drawback.has(primary.move)) tags += ' <span class="rl">反動</span>';
     if (primary.acc) tags += ` <span class="ac">命中${Engine.pyRound(primary.acc)}%</span>`;
@@ -67,11 +69,21 @@
              `${boosted.pl}-${boosted.ph}% ${boosted.verdict}</div>`;
     }
 
+    // 被弾側の注記。連続技の回数、皮で1回止まること、条件付き特性が剥がれたときの数字。
+    let backTags = '';
+    if (back.hits) backTags += ` <span class="hits">${esc(back.hits)}</span>`;
+    if (back.disguise) backTags += ' <span class="abm">皮が剥がれた後</span>';
+
     let backSub = '';
+    if (back.stripped) {
+      const cls = back.stripped.ph >= 100 ? 'rare hot' : 'rare';
+      backSub += `<div class="${cls}">${esc(back.stripped_label)} ` +
+                 `<b>${esc(back.stripped.move)}</b> ${back.stripped.ph}%</div>`;
+    }
     if (back.rare) {
       const cls = back.rare.ph >= 100 ? 'rare hot' : 'rare';
-      backSub = `<div class="${cls}">低採用 <b>${esc(back.rare.move)}</b>` +
-                `（${Engine.pyRound(back.rare.usage)}%） ${back.rare.ph}%</div>`;
+      backSub += `<div class="${cls}">低採用 <b>${esc(back.rare.move)}</b>` +
+                 `（${Engine.pyRound(back.rare.usage)}%） ${back.rare.ph}%</div>`;
     }
 
     const formLabel = member.form ? `<small>${esc(member.form)}</small>` : '';
@@ -84,7 +96,7 @@
       `<td class="barcell">${bar(primary.pl, primary.ph, vcolor)}</td>` +
       `<td class="vdcell"><span class="vd ${vclass}">${primary.verdict}</span></td>` +
       `<td class="pct">${primary.pl}-${primary.ph}%</td>` +
-      `<td class="back${danger}">被弾 <b>${esc(back.move)}</b> ${back.ph}%${backSub}</td></tr>`;
+      `<td class="back${danger}">被弾 <b>${esc(back.move)}</b>${backTags} ${back.ph}%${backSub}</td></tr>`;
   }
 
   // ---------------------------------------------------------- 1カード

@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, ABILITY_DISPLAY, SOUND,
-                    VERDICT_RANK, MEGA_NAMES, ABILITIES, self_boost)
+                    VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
+                    MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES, BOOSTING_MOVES,
                    MOLD_BREAKER_ABILITIES, FAIRY_SKIN_ABILITIES, SHARPNESS_ABILITIES,
@@ -57,8 +58,11 @@ def dex_rows():
 
 
 def move_rows():
+    # multi / ohko は効果欄から導いた結果。JS側で同じ解析を書くと必ず食い違うので、
+    # 解析済みのものを渡してJSは使うだけにする。
     return {name: dict(type=m['type'], cat=m['cat'], power=m['power'],
-                       acc=m['acc'], pri=m['pri'], effect=m['effect'])
+                       acc=m['acc'], pri=m['pri'], effect=m['effect'],
+                       multi=m['multi'], ohko=m['ohko'])
             for name, m in MOVES.items()}
 
 
@@ -107,6 +111,8 @@ def rules():
         verdictClass={k: v[0] for k, v in VERDICT_CLASS.items()},
         verdictColor={k: v[1] for k, v in VERDICT_CLASS.items()},
         verdictRank=VERDICT_RANK,
+        verdictPlusOne=VERDICT_PLUS_ONE,
+        strippableAbilities=list(STRIPPABLE_ABILITIES),
         maxPointsPerStat=MAX_POINTS_PER_STAT,
         maxPointsTotal=MAX_POINTS_TOTAL,
         rareMoveThreshold=RARE_MOVE_THRESHOLD,
@@ -142,6 +148,10 @@ def golden():
                 srMove=primary_sr['move'] if primary_sr else None,
                 backMove=back['move'], backPh=back['ph'],
                 backRare=back['rare']['move'] if back.get('rare') else None,
+                backStripped=back['stripped']['ph'] if back.get('stripped') else None,
+                backDisguise=bool(back.get('disguise')),
+                primaryDisguise=bool(primary.get('disguise')),
+                primaryHits=primary.get('hits'),
                 boostMove=boosted['move'] if boosted else None,
                 boostPh=boosted['ph'] if boosted else None,
                 boostStages=boosted['stages'] if boosted else None,

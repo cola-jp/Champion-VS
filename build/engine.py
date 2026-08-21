@@ -93,6 +93,37 @@ def parse_rank_change(text):
     return out
 
 
+# 連続技。効果欄の「2〜5回連続攻撃」「3回連続攻撃」から導く。
+# トリプルアクセルのように「当たるごとに威力が20ずつ増加」するものは step に増分を入れる。
+_MULTI_RE = re.compile(r'(\d+)(?:〜(\d+))?回連続攻撃')
+_STEP_RE = re.compile(r'威力が(\d+)ずつ増加')
+
+
+def parse_multi_hit(effect, power):
+    """連続技なら {min, max, step, label} を返す。単発なら None。"""
+    if not effect:
+        return None
+    m = _MULTI_RE.search(effect)
+    if not m or not power:
+        return None
+    lo = int(m.group(1))
+    hi = int(m.group(2)) if m.group(2) else lo
+    s = _STEP_RE.search(effect)
+    return dict(min=lo, max=hi, step=int(s.group(1)) if s else 0,
+                label=f'{lo}〜{hi}回' if hi != lo else f'{lo}回')
+
+
+def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0):
+    """連続技の合計ダメージ。(最低回数×最低乱数, 最高回数×最高乱数) を返す。
+    1発ずつ damage() を通して足すこと。各発で切り捨てが入るので、
+    威力を合算してから1回で計算すると数値が合わない。"""
+    def total(hits, idx):
+        return sum(damage(power + mh['step'] * i, attack, defense,
+                          stab, type_eff, extra)[idx]
+                   for i in range(hits))
+    return total(mh['min'], 0), total(mh['max'], 1)
+
+
 # 技データ: MOVES[技名] = {type, cat, power, acc, pri, effect, ranks, ohko}
 MOVES = {}
 for _r in _read_csv(MOVES_CSV):
@@ -106,8 +137,10 @@ for _r in _read_csv(MOVES_CSV):
         pri=float(_r['priority']) if _r['priority'] else 0.0,
         effect=_effect,
         ranks=parse_rank_change(_r.get('rank_change')),
-        # 一撃必殺は技名を並べるのではなく効果欄から拾う。新しい技が増えても勝手に効く。
-        ohko=bool(_effect and '一撃必殺' in _effect))
+        # 一撃必殺・連続技は技名を並べるのではなく効果欄から拾う。
+        # 新しい技が増えても、効果欄に同じ書き方をしてあれば勝手に効く。
+        ohko=bool(_effect and '一撃必殺' in _effect),
+        multi=parse_multi_hit(_effect, float(_r['power']) if _r['power'] else 0))
 
 
 def self_boost(move):
@@ -417,3 +450,16 @@ def verdict(lo, hi, hp):
 
 
 VERDICT_RANK = {'確1': 5, '乱1': 4, '確2': 3, '乱2': 2, '確3': 1, '4発+': 0}
+
+# ばけのかわで1回無効化されるぶん、必要な手数が1つ増えたときの判定。
+# 乱2 に1発足すと「3発だが乱数」で、この目盛りには無い。控えめに 4発+ に寄せる。
+VERDICT_PLUS_ONE = {'確1': '確2', '乱1': '乱2', '確2': '確3',
+                    '乱2': '4発+', '確3': '4発+', '4発+': '4発+'}
+
+
+def verdict_plus_one(v):
+    return VERDICT_PLUS_ONE.get(v, v)
+
+
+# 条件で剥がれる防御特性。剥がれた後のダメージも併記する対象。
+STRIPPABLE_ABILITIES = ('マルチスケイル', 'ばけのかわ')

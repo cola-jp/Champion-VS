@@ -132,6 +132,25 @@ const Engine = (() => {
     return [roll(0.85), roll(1.0)];
   }
 
+  /* 連続技の合計ダメージ。1発ずつ damage() を通して足すこと。
+     各発で切り捨てが入るので、威力を合算して1回で計算すると数値が合わない。
+     何回当たるか（min/max）と威力の増分（step）は技データから導いた結果を使う。 */
+  function multiDamage(mh, power, attack, defense, stab, typeEff, extra) {
+    const total = (hits, idx) => {
+      let s = 0;
+      for (let i = 0; i < hits; i++) {
+        s += damage(power + mh.step * i, attack, defense, stab, typeEff, extra)[idx];
+      }
+      return s;
+    };
+    return [total(mh.min, 0), total(mh.max, 1)];
+  }
+
+  /* ばけのかわで1回止まるぶん、必要な手数が1つ増えたときの判定。 */
+  function verdictPlusOne(v) {
+    return R.verdictPlusOne[v] || v;
+  }
+
   function verdict(lo, hi, hp) {
     if (lo >= hp) return '確1';
     if (hi >= hp) return '乱1';
@@ -166,19 +185,27 @@ const Engine = (() => {
     let [am, abName] = abilityMod(threat.ability, moveType, member.mold_breaker,
                                   threat.hp_full !== false, SOUND_SET.has(move));
     if (abName === 'ハードロック' && t < 2) am = 1.0;
-    if (abName === 'ばけのかわ') am = 1.0;
+    const disguise = (abName === 'ばけのかわ');
+    if (disguise) am = 1.0;   // 倍率ではなく1回無効なので、ダメージは等倍のまま
 
     const stab = member.types.includes(moveType) ? 1.5 : 1.0;
     const atk = m.cat === '物理' ? member.st[1] : member.st[3];
     const dfn = m.cat === '物理' ? threat.st[2] : threat.st[4];
-    const [lo, hi] = damage(m.power, atk, dfn, stab, t * am, extra);
+    const [lo, hi] = m.multi
+      ? multiDamage(m.multi, m.power, atk, dfn, stab, t * am, extra)
+      : damage(m.power, atk, dfn, stab, t * am, extra);
     const hp = hpEff === undefined || hpEff === null ? threat.st[0] : hpEff;
+
+    let v = verdict(lo, hi, hp);
+    if (disguise) v = verdictPlusOne(v);   // 皮で1回止まるぶん手数が増える
 
     const res = {
       move, lo, hi,
       pl: pyRound(lo * 100 / hp), ph: pyRound(hi * 100 / hp),
-      eff: t, verdict: verdict(lo, hi, hp),
+      eff: t, verdict: v,
     };
+    if (disguise) res.disguise = true;
+    if (m.multi) res.hits = m.multi.label;
     if (am !== 1.0 && abName) { res.ab_name = abName; res.ab_mult = am; }
     if (m.acc && m.acc < 100) res.acc = m.acc;
     return res;
@@ -236,9 +263,38 @@ const Engine = (() => {
   // ------------------------------------------------------------ 相手→自軍
 
   /* 相手の最大打点。採用率が閾値を超える技の中から選び、低採用の技が上回るときだけ
-     rare として添える。相手の攻撃特性（最頻のもの）を反映する。 */
+     rare として添える。相手の攻撃特性と自軍の防御特性の両方を反映する。
+
+     条件で剥がれる特性:
+       マルチスケイル … 主表示は満タン時（半減）、剥がれた後を stripped に入れて併記。
+       ばけのかわ     … 皮がある間は攻撃が通らない。0%を出しても役に立たないので、
+                        主表示は剥がれた後の数字にして disguise の印を付ける。
+     相手がかたやぶり系ならどちらも無視される。 */
   function theirHit(threat, member) {
     const ability = threat.ability_ja || threat.ability || '';
+    const mold = ['かたやぶり', 'ターボブレイズ', 'テラボルテージ'].some(k => ability.includes(k));
+    const myAb = member.ability || '';
+    const hasMs = myAb.includes('マルチスケイル') && !mold;
+    const hasDisguise = myAb.includes('ばけのかわ') && !mold;
+
+    if (hasDisguise) {
+      const best = theirHitScan(threat, member, ability, mold, false);
+      if (best.move !== '—') best.disguise = true;
+      return best;
+    }
+    const best = theirHitScan(threat, member, ability, mold, true);
+    if (hasMs && best.move !== '—') {
+      const stripped = theirHitScan(threat, member, ability, mold, false);
+      if (stripped.move !== '—' && stripped.hi > best.hi) {
+        best.stripped = stripped;
+        best.stripped_label = 'マルチスケイル解除';
+      }
+    }
+    return best;
+  }
+
+  /* theirHit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。 */
+  function theirHitScan(threat, member, ability, mold, defenderAbilityOn) {
     const main = [], rare = [];
     for (const entry of threat.moves.slice(0, 8)) {
       const mv = entry.name, usage = entry.usage;
@@ -265,14 +321,28 @@ const Engine = (() => {
       else stab = threat.types.includes(moveType) ? 1.5 : 1.0;
 
       const t = eff(moveType, member.types[0], member.types[1]);
-      if (t === 0) continue;   // タイプ無効。damage() は最低1を返すので落としておく
+
+      // 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
+      // ばけのかわは倍率ではないのでここでは触らず、呼び出し側で扱う。
+      let am = 1.0;
+      if (defenderAbilityOn) {
+        let abName;
+        [am, abName] = abilityMod(member.ability, moveType, mold, true, SOUND_SET.has(mv));
+        if (abName === 'ハードロック' && t < 2) am = 1.0;
+        if (abName === 'ばけのかわ') am = 1.0;
+      }
+
+      if (t * am === 0) continue;   // 相性か特性で通らない技。damage() は最低1を返すので落とす
       const dfn = m.cat === '物理' ? member.st[2] : member.st[4];
-      const [lo, hi] = damage(power, atk, dfn, stab, t, extra);
+      const [lo, hi] = m.multi
+        ? multiDamage(m.multi, power, atk, dfn, stab, t * am, extra)
+        : damage(power, atk, dfn, stab, t * am, extra);
       const cand = {
         move: mv, lo, hi, usage,
         pl: pyRound(lo * 100 / member.st[0]),
         ph: pyRound(hi * 100 / member.st[0]),
       };
+      if (m.multi) cand.hits = m.multi.label;
       (usage > R.rareMoveThreshold ? main : rare).push(cand);
     }
     const pool = main.length ? main : rare;
@@ -493,6 +563,10 @@ const Engine = (() => {
         ['srMove', primarySr ? primarySr.move : null, row.srMove],
         ['backMove', back.move, row.backMove], ['backPh', back.ph, row.backPh],
         ['backRare', back.rare ? back.rare.move : null, row.backRare],
+        ['backStripped', back.stripped ? back.stripped.ph : null, row.backStripped],
+        ['backDisguise', !!back.disguise, row.backDisguise],
+        ['primaryDisguise', !!primary.disguise, row.primaryDisguise],
+        ['primaryHits', primary.hits === undefined ? null : primary.hits, row.primaryHits],
         ['boostMove', boosted ? boosted.move : null, row.boostMove],
         ['boostPh', boosted ? boosted.ph : null, row.boostPh],
         ['boostStages', boosted ? boosted.stages : null, row.boostStages],
