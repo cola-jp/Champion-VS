@@ -171,6 +171,19 @@ const Engine = (() => {
 
   // ------------------------------------------------------------ 自軍→相手
 
+  /* 持ち物によるダメージ補正。[攻撃, その他補正] を返す。
+     特性と同じく、自軍の打点にも相手からの被弾にも同じ関数を通すこと。 */
+  function itemMods(item, m, moveType, typeEff, atk, extra) {
+    const spec = R.itemDamage[item || ''];
+    if (!spec) return [atk, extra];
+    if (spec.type && spec.type !== moveType) return [atk, extra];
+    if (spec.super && typeEff < 2) return [atk, extra];
+    if (spec.cat && spec.cat !== m.cat) return [atk, extra];
+    if (spec.atk_mult) atk = Math.trunc(atk * spec.atk_mult);
+    if (spec.mult) extra *= spec.mult;
+    return [atk, extra];
+  }
+
   /* 攻撃側の特性による補正。[技タイプ, 威力, 攻撃, その他補正, 一致補正] を返す。
      **自軍からの打点も相手からの被弾も必ずこれを通すこと。** 片方にだけ書くと
      もう片方が抜ける（実際にてきおうりょくが相手側にしか入っておらず、
@@ -215,9 +228,8 @@ const Engine = (() => {
     // eslint-disable-next-line prefer-const
     let [moveType, power, atk, extra, stab] =
       offensiveMods(member.ability, move, m, member.types, atk0, protean);
-    if (member.life_orb) extra *= 1.3;
-
     const t = eff(moveType, threat.types[0], threat.types[1]);
+    [atk, extra] = itemMods(member.item, m, moveType, t, atk, extra);
     let [am, abName] = abilityMod(threat.ability, moveType, member.mold_breaker,
                                   threat.hp_full !== false, SOUND_SET.has(move));
     if (abName === 'ハードロック' && t < 2) am = 1.0;
@@ -336,10 +348,12 @@ const Engine = (() => {
       if (!m || !m.power) continue;
 
       const atk0 = m.cat === '物理' ? threat.st[1] : threat.st[3];
-      const [moveType, power, atk, extra, stab] =
+      // eslint-disable-next-line prefer-const
+      let [moveType, power, atk, extra, stab] =
         offensiveMods(ability, mv, m, threat.types, atk0, threat.protean);
 
       const t = eff(moveType, member.types[0], member.types[1]);
+      [atk, extra] = itemMods(threat.item, m, moveType, t, atk, extra);
 
       // 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
       // ばけのかわは倍率ではないのでここでは触らず、呼び出し側で扱う。

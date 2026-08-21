@@ -65,6 +65,17 @@ ITEM_JA = {
     'metagrossite': 'メタグロスナイト', 'raichunite-y': 'ライチュウナイトY', 'scizorite': 'ハッサムナイト',
     'staraptorite': 'ムクホークナイト', 'starmienite': 'スターミーナイト', 'swampertite': 'ラグラージナイト',
     'venusaurite': 'フシギバナイト',
+    # ダメージに関わる持ち物（ITEM_DAMAGE で補正を掛ける）
+    'choice-band': 'こだわりハチマキ', 'choice-specs': 'こだわりメガネ',
+    'expert-belt': 'たつじんのおび', 'mystic-water': 'しんぴのしずく',
+    'never-melt-ice': 'とけないこおり', 'spell-tag': 'のろいのおふだ',
+    'miracle-seed': 'きせきのタネ', 'fairy-feather': 'フェアリーのはね',
+    # ダメージに関わらないが主採用になりうるもの（英語名のまま出さないため）
+    'white-herb': 'しろいハーブ', 'mental-herb': 'メンタルハーブ',
+    'wide-lens': 'こうかくレンズ', 'scope-lens': 'ピントレンズ',
+    'quick-claw': 'せんせいのツメ', 'bright-powder': 'ひかりのこな',
+    'heat-rock': 'あついいわ', 'smooth-rock': 'さらさらいわ',
+    'light-ball': 'でんきだま',
 }
 # 相手が持ちうる特性を、この表の計算にどう反映しているかの一覧。
 # 効果の説明は data/abilities_ja.json（build/extract_abilities.py が data/特性の効果.pdf から生成）を見る。
@@ -243,6 +254,23 @@ def check_abilities(rows):
             print(f'  {ability} — {effect}')
             print(f'    該当: {"、".join(sorted(names))}')
 
+    # 持ち物も特性と同じく、分類していないものが出たら知らせる。
+    # 黙って等倍にすると、いのちのたま持ちの被弾が1.3倍ぶん低いまま気づけない。
+    unknown_items = {}
+    for r in rows:
+        item = r['item'] or ''
+        # メガストーンはメガシンカの引き金であってダメージ補正は無い。
+        # 「リザードナイトY」のように末尾にX/Yが付くものがあるので、そこは外して見る。
+        stone = item[:-1] if item[-1:] in ('X', 'Y') else item
+        if item in ITEM_DAMAGE or item in ITEM_NO_DAMAGE or stone.endswith('ナイト'):
+            continue
+        unknown_items.setdefault(item, set()).add(r['name'])
+    if unknown_items:
+        print('警告: ダメージに影響するか未判断の持ち物があります'
+              '（build/generate.py の ITEM_DAMAGE か ITEM_NO_DAMAGE に追記してください）:')
+        for item, names in sorted(unknown_items.items()):
+            print(f'  {item} — 該当: {"、".join(sorted(names))}')
+
     if unclassified_contact:
         print('警告: かたいツメ持ちが使う技のうち、接触かどうか未分類のものがあります'
               '（build/party.py の CONTACT_MOVES / NON_CONTACT_MOVES に追記してください）:')
@@ -367,6 +395,55 @@ SKIN_ABILITIES = {'フェアリースキン': 'フェアリー', 'スカイス�
                   'エレキスキン': 'でんき'}
 
 
+# 持ち物によるダメージ補正（攻撃側にだけ効くもの）。
+#   mult  … その他補正に掛ける倍率
+#   type  … 指定があればそのタイプの技だけ
+#   super … Trueなら効果抜群のときだけ
+#   atk_mult / cat … 攻撃実数値に掛ける倍率と対象の分類
+# ここに無い持ち物が相手の主採用になっているとビルドが警告する（黙って等倍にしないため）。
+ITEM_DAMAGE = {
+    'いのちのたま':     dict(mult=1.3),
+    'たつじんのおび':   dict(mult=1.2, super=True),
+    'こだわりハチマキ': dict(atk_mult=1.5, cat='物理'),
+    'こだわりメガネ':   dict(atk_mult=1.5, cat='特殊'),
+    # タイプ強化アイテム（該当タイプの技を1.2倍）
+    'くろいメガネ':     dict(mult=1.2, type='あく'),
+    'しんぴのしずく':   dict(mult=1.2, type='みず'),
+    'のろいのおふだ':   dict(mult=1.2, type='ゴースト'),
+    'とけないこおり':   dict(mult=1.2, type='こおり'),
+    'きせきのタネ':     dict(mult=1.2, type='くさ'),
+    'フェアリーのはね': dict(mult=1.2, type='フェアリー'),
+}
+
+# ダメージに影響しない持ち物。分類済みであることを示すためだけに並べてある。
+# メガストーンは「ナイト」で終わる名前で判定するので個別には書かない。
+ITEM_NO_DAMAGE = {
+    '', '—', 'きあいのタスキ', 'たべのこし', 'オボンのみ', 'こだわりスカーフ',
+    'ひかりのねんど', 'しめったいわ', 'ラムのみ', 'あついいわ', 'さらさらいわ',
+    'しろいハーブ', 'メンタルハーブ', 'こうかくレンズ', 'ピントレンズ',
+    'せんせいのツメ', 'ひかりのこな', 'でんきだま',
+}
+
+
+def item_mods(item, m, move_type, type_eff, atk, extra):
+    """持ち物によるダメージ補正。(攻撃, その他補正) を返す。
+    特性と同じく、自軍の打点にも相手からの被弾にも同じ関数を通すこと。"""
+    spec = ITEM_DAMAGE.get(item or '')
+    if not spec:
+        return atk, extra
+    if spec.get('type') and spec['type'] != move_type:
+        return atk, extra
+    if spec.get('super') and type_eff < 2:
+        return atk, extra
+    if spec.get('cat') and spec['cat'] != m['cat']:
+        return atk, extra
+    if spec.get('atk_mult'):
+        atk = int(atk * spec['atk_mult'])
+    if spec.get('mult'):
+        extra *= spec['mult']
+    return atk, extra
+
+
 def offensive_mods(ability, move, m, attacker_types, atk, protean=False):
     """攻撃側の特性による補正をまとめて返す。(技タイプ, 威力, 攻撃, その他補正, 一致補正)
 
@@ -427,9 +504,8 @@ def my_hit(member, move, threat, hp_eff=None):
     protean = any(k in (member.get('ability') or '') for k in ('へんげんじざい', 'リベロ'))
     move_type, power, atk, extra, stab = offensive_mods(
         member.get('ability'), move, m, member['types'], atk0, protean)
-    if member['life_orb']:
-        extra *= 1.3
     t = eff(move_type, *threat['types'])
+    atk, extra = item_mods(member.get('item'), m, move_type, t, atk, extra)
     am, ab_name = ability_mod(threat['ability'], move_type, member['mold_breaker'],
                               hp_full=(threat['hp_full'] is not False),
                               is_sound=(move in SOUND))
@@ -537,6 +613,7 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
             ability, mv, m, threat['types'], atk0, threat['protean'])
 
         t = eff(move_type, *member['types'])
+        atk, extra = item_mods(threat['item'], m, move_type, t, atk, extra)
 
         # 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
         # ばけのかわは倍率ではないのでここでは触らず、呼び出し側で扱う。

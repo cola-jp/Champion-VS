@@ -28,7 +28,8 @@ from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    THREAT_RANK_LIMIT)
 import generate
 from generate import (build_threats, TYPE_COLOR, VERDICT_CLASS, ABILITY_JA,
-                      ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES)
+                      ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES,
+                      ITEM_DAMAGE)
 
 OUT_DIR = os.path.join(ROOT, 'appdata')
 
@@ -114,6 +115,7 @@ def rules():
         verdictPlusOne=VERDICT_PLUS_ONE,
         strippableAbilities=list(STRIPPABLE_ABILITIES),
         skinAbilities=SKIN_ABILITIES,
+        itemDamage=ITEM_DAMAGE,
         maxPointsPerStat=MAX_POINTS_PER_STAT,
         maxPointsTotal=MAX_POINTS_TOTAL,
         rareMoveThreshold=RARE_MOVE_THRESHOLD,
