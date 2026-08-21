@@ -184,16 +184,33 @@ const Engine = (() => {
     return res;
   }
 
+  /* ランク補正の倍率。+n は (2+n)/2。 */
+  function rankMultiplier(stages) {
+    return stages >= 0 ? (2 + stages) / 2 : 2 / (2 - stages);
+  }
+
+  /* 積み技を1回使った後の最大打点。
+     上がるのはその技が実際に上げる能力だけで、段階もその技のぶん
+     （つるぎのまいは攻撃+2なので2.0倍）。どの技が何段階上げるかは
+     技データから導いた rules.boostStages を引く。JS側で解析し直さない。 */
   function boostedHit(member, threat, hpEff) {
-    if (!member.boosting_move) return null;
+    const move = member.boosting_move;
+    if (!move) return null;
+    const boost = R.boostStages[move];
+    if (!boost || !Object.keys(boost).length) return null;
     const boosted = Object.assign({}, member);
     boosted.st = member.st.slice();
-    boosted.st[1] = Math.trunc(member.st[1] * 1.5);
-    boosted.st[3] = Math.trunc(member.st[3] * 1.5);
+    for (const [stat, idx] of [['atk', 1], ['spa', 3]]) {
+      if (boost[stat] !== undefined) {
+        boosted.st[idx] = Math.trunc(member.st[idx] * rankMultiplier(boost[stat]));
+      }
+    }
     const hits = member.moves.map(mv => myHit(boosted, mv, threat, hpEff))
                              .filter(h => h && !h.ohko);
     if (!hits.length) return null;
-    return hits.reduce((a, b) => (b.hi > a.hi ? b : a));
+    const best = hits.reduce((a, b) => (b.hi > a.hi ? b : a));
+    best.stages = Math.max(...Object.values(boost));
+    return best;
   }
 
   /* 主表示する技と次善の技。判定が最も良いものを主にし、同判定ならデメリットのない技を優先。 */
@@ -478,6 +495,7 @@ const Engine = (() => {
         ['backRare', back.rare ? back.rare.move : null, row.backRare],
         ['boostMove', boosted ? boosted.move : null, row.boostMove],
         ['boostPh', boosted ? boosted.ph : null, row.boostPh],
+        ['boostStages', boosted ? boosted.stages : null, row.boostStages],
         ['srDamage', sr, row.srDamage],
       ];
       for (const [field, got, want] of cmp) {

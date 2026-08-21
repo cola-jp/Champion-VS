@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     MOVE_NAME_EN_JA, ABILITIES, fix_move_name, is_mega,
                     PokemonNotFoundError, RegionFormError,
-                    stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND)
+                    stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
+                    self_boost, rank_multiplier)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
@@ -402,16 +403,28 @@ def my_hit(member, move, threat, hp_eff=None):
 
 
 def boosted_hit(member, threat, hp_eff=None):
-    """積み技を1回使った後の最大打点。積み技を持たない駒はNone。"""
-    if not member['boosting_move']:
+    """積み技を1回使った後の最大打点。積み技を持たない駒はNone。
+    上がるのはその技が実際に上げる能力だけで、段階もその技のぶん。
+    つるぎのまいは攻撃+2なので2.0倍、りゅうのまいは攻撃+1なので1.5倍になる。
+    以前は技を問わず攻撃・特攻を一律1.5倍していたので、+2の技で過小評価していた。"""
+    move = member['boosting_move']
+    if not move:
+        return None
+    boost = self_boost(move)
+    if not boost:
         return None
     boosted = dict(member)
     boosted['st'] = list(member['st'])
-    boosted['st'][1] = int(member['st'][1] * 1.5)
-    boosted['st'][3] = int(member['st'][3] * 1.5)
+    for stat, idx in (('atk', 1), ('spa', 3)):
+        if stat in boost:
+            boosted['st'][idx] = int(member['st'][idx] * rank_multiplier(boost[stat]))
     hits = [my_hit(boosted, mv, threat, hp_eff) for mv in member['moves']]
     hits = [h for h in hits if h and not h.get('ohko')]
-    return max(hits, key=lambda x: x['hi']) if hits else None
+    if not hits:
+        return None
+    best = max(hits, key=lambda x: x['hi'])
+    best['stages'] = max(boost.values())
+    return best
 
 
 def their_hit(threat, member):

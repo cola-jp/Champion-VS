@@ -63,7 +63,7 @@
     }
     const boosted = Engine.boostedHit(member, threat, hpEff);
     if (boosted) {
-      sub += `<div class="d1">${esc(member.boosting_move)}+1: ${esc(boosted.move)} ` +
+      sub += `<div class="d1">${esc(member.boosting_move)}+${boosted.stages}: ${esc(boosted.move)} ` +
              `${boosted.pl}-${boosted.ph}% ${boosted.verdict}</div>`;
     }
 

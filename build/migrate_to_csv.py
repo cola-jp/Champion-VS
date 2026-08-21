@@ -108,9 +108,10 @@ def main():
                           '' if r[3] is None else r[3],
                           '' if r[4] is None else r[4],
                           '' if r[5] is None else r[5],
-                          r[6] or ''])
+                          r[6] or '',
+                          r[8] or ''])   # ランク変化。積み技の判定に使う
     write_csv('moves.csv', ['name', 'type', 'category', 'power', 'accuracy',
-                            'priority', 'effect'], move_rows)
+                            'priority', 'effect', 'rank_change'], move_rows)
 
     # ---------------- タイプ相性
     rows = list(wb['相性表'].iter_rows(values_only=True))

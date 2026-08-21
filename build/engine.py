@@ -64,17 +64,72 @@ def fix_move_name(name):
     return MOVE_NAME_FIX.get(name, name)
 
 
-# 技データ: MOVES[技名] = {type, cat, power, acc, pri, effect}
+# ランク変化欄の書式: '自分こうげき+2/とくこう+2' '相手ぼうぎょ-1(30%)'
+# 2つ目以降は「自分/相手」を省略して直前を引き継ぐ。
+# 末尾の括弧は発動条件（確率・接触時など）で、付いていると確実には発動しない。
+RANK_STAT = {'こうげき': 'atk', 'ぼうぎょ': 'def', 'とくこう': 'spa',
+             'とくぼう': 'spd', 'すばやさ': 'spe', '全能力': 'all'}
+_RANK_RE = re.compile(r'^(自分|相手)?(.+?)([+\-]\d+)(?:\((.+)\))?$')
+
+
+def parse_rank_change(text):
+    """ランク変化欄を [{target, stat, stages, cond}] にする。読めない書式は捨てる。"""
+    out = []
+    target = '自分'
+    for part in (text or '').split('/'):
+        part = part.strip()
+        if not part:
+            continue
+        m = _RANK_RE.match(part)
+        if not m:
+            continue
+        if m.group(1):
+            target = m.group(1)
+        stat = RANK_STAT.get(m.group(2))
+        if not stat:
+            continue
+        out.append(dict(target=target, stat=stat,
+                        stages=int(m.group(3)), cond=m.group(4) or None))
+    return out
+
+
+# 技データ: MOVES[技名] = {type, cat, power, acc, pri, effect, ranks, ohko}
 MOVES = {}
 for _r in _read_csv(MOVES_CSV):
     if not _r['name']:
         continue
+    _effect = _r['effect'] or None
     MOVES[fix_move_name(_r['name'])] = dict(
         type=_r['type'], cat=_r['category'],
         power=float(_r['power']) if _r['power'] else 0,
         acc=float(_r['accuracy']) if _r['accuracy'] else None,
         pri=float(_r['priority']) if _r['priority'] else 0.0,
-        effect=_r['effect'] or None)
+        effect=_effect,
+        ranks=parse_rank_change(_r.get('rank_change')),
+        # 一撃必殺は技名を並べるのではなく効果欄から拾う。新しい技が増えても勝手に効く。
+        ohko=bool(_effect and '一撃必殺' in _effect))
+
+
+def self_boost(move):
+    """その技を1回使うと自分の攻撃系ランクが何段階上がるか。{'atk': 2} のように返す。
+    条件付き（確率・接触時など）は確実に積めないので数えない。
+    ダメージ表の「積み技+n」はこれを見て決める。"""
+    m = MOVES.get(move)
+    if not m or m['cat'] != '変化':
+        return {}
+    out = {}
+    for r in m['ranks']:
+        if r['target'] != '自分' or r['cond'] or r['stages'] <= 0:
+            continue
+        for s in (('atk', 'spa') if r['stat'] == 'all' else (r['stat'],)):
+            if s in ('atk', 'spa'):
+                out[s] = max(out.get(s, 0), r['stages'])
+    return out
+
+
+def rank_multiplier(stages):
+    """ランク補正の倍率。+n は (2+n)/2、-n は 2/(2+n)。"""
+    return (2 + stages) / 2 if stages >= 0 else 2 / (2 - stages)
 
 # 図鑑: DEX[ポケモン名] = {t1, t2, ab, ab_list, base}
 # メガ形態やリージョンフォームは「メガ○○」「○○(ヒスイ)」で別エントリ。

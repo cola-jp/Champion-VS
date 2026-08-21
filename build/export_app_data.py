@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, ABILITY_DISPLAY, SOUND,
-                    VERDICT_RANK, MEGA_NAMES, ABILITIES)
+                    VERDICT_RANK, MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES, BOOSTING_MOVES,
                    MOLD_BREAKER_ABILITIES, FAIRY_SKIN_ABILITIES, SHARPNESS_ABILITIES,
@@ -96,6 +96,9 @@ def rules():
         statusMoves=sorted(STATUS_MOVES),
         drawbackMoves=sorted(DRAWBACK_MOVES),
         boostingMoves=sorted(BOOSTING_MOVES),
+        # 積み技ごとに「どの能力が何段階上がるか」。JS側で解析を書き直すと食い違うので、
+        # 技データから導いた結果をそのまま渡す。
+        boostStages={m: self_boost(m) for m in sorted(BOOSTING_MOVES)},
         moldBreakerAbilities=sorted(MOLD_BREAKER_ABILITIES),
         fairySkinAbilities=sorted(FAIRY_SKIN_ABILITIES),
         sharpnessAbilities=sorted(SHARPNESS_ABILITIES),
@@ -141,6 +144,7 @@ def golden():
                 backRare=back['rare']['move'] if back.get('rare') else None,
                 boostMove=boosted['move'] if boosted else None,
                 boostPh=boosted['ph'] if boosted else None,
+                boostStages=boosted['stages'] if boosted else None,
                 srDamage=sr,
             ))
     with open(os.path.join(ROOT, 'party.txt'), encoding='utf-8') as f:

@@ -14,7 +14,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from engine import ROOT, DEX, MOVES, NATURE, NAT_JA
+from engine import ROOT, DEX, MOVES, NATURE, NAT_JA, self_boost
 
 PARTY_TXT = os.path.join(ROOT, 'party.txt')
 
@@ -25,7 +25,9 @@ STAT_LABELS = ['H', 'A', 'B', 'C', 'D', 'S']
 MOLD_BREAKER_ABILITIES = {'かたやぶり'}
 FAIRY_SKIN_ABILITIES = {'フェアリースキン'}
 SHARPNESS_ABILITIES = {'きれあじ'}
-BOOSTING_MOVES = {'りゅうのまい', 'つるぎのまい', 'ちょうのまい', 'めいそう'}
+# 積み技（1回使うと自分の攻撃か特攻が確実に上がる変化技）。
+# 技名を並べず技データのランク変化欄から導く。新しい積み技が増えても勝手に効く。
+BOOSTING_MOVES = {name for name in MOVES if self_boost(name)}
 
 MAX_POINTS_PER_STAT = 32
 MAX_POINTS_TOTAL = 66
@@ -56,8 +58,8 @@ NON_CONTACT_MOVES = {'じしん', 'いわなだれ', 'がんせきふうじ', '�
                      'ヘドロウェーブ', 'マッドショット', 'パワージェム', 'つのドリル',
                      'タネマシンガン', 'ミサイルばり', 'つららばり'}
 
-# 一撃必殺技
-OHKO_MOVES = {'つのドリル', 'じわれ', 'ハサミギロチン', 'ぜったいれいど'}
+# 一撃必殺技。技データの効果欄に「一撃必殺」と書かれているものを拾う。
+OHKO_MOVES = {name for name, m in MOVES.items() if m['ohko']}
 
 # 変化技（ダメージ計算の対象外）
 STATUS_MOVES = {'ステルスロック', 'まきびし', 'あくび', 'ふきとばし', 'はねやすめ',

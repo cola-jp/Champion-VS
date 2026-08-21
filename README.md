@@ -65,6 +65,11 @@ node build/verify_engine.js      # JS版がPython版と同じ数値を出すか�
 | 特性 | 名前は `dex.csv` に書く。計算に効くかは `build/generate.py` の `ABILITY_HANDLING` に1行 |
 
 `data/dex.csv` の列は `no,name,type1,type2,abilities,hp,atk,def,spa,spd,spe`。
+`data/moves.csv` の列は `name,type,category,power,accuracy,priority,effect,rank_change`。
+
+一撃必殺技は `effect` に「一撃必殺」と書けば自動で拾われる。積み技は `rank_change`
+（`自分こうげき+2` のような書式）から判定され、上がる能力と段階数もそこから決まる。
+どちらも技名の一覧を別に持っていないので、CSVに書けばそれだけで効く。
 
 ```
 003,フシギバナ,くさ,どく,しんりょく/ようりょくそ,80,82,83,100,100,80
