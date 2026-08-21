@@ -61,9 +61,10 @@
         <div id="list" style="display:flex;flex-direction:column;gap:11px"></div>
         <div class="btnrow"><button class="act" id="add">1体追加</button></div>
         <p class="hint">
-          能力ポイントは実数値・種族値・性格から逆算している。<b>1ポイントで実数値がちょうど1上がる</b>ので
-          解は一意に決まり、合わない値を入れるとその場でエラーになる。
-          取りうる値も併せて出るので、書き写しのミスはそこで分かる。
+          努力値は<b>各ステータスに振った能力ポイント</b>で入れる。下に出る数字がその実数値なので、
+          ゲーム内のステータス画面と突き合わせて確認できる。<br>
+          1ポイント = 努力値8。1ステータス最大32ポイント、1体あたり合計66ポイントまで。
+          <b>実数値はメガシンカ前の値</b>が出る（メガ形態は保存時に自動で作られる）。
         </p>
       </div>
     </section>
@@ -73,6 +74,8 @@
 <datalist id="dl-pokemon"></datalist>
 <datalist id="dl-moves"></datalist>
 <datalist id="dl-nature"></datalist>
+<datalist id="dl-abilities"></datalist>
+<datalist id="dl-items"></datalist>
 
 <script src="assets/engine.js"></script>
 <script src="assets/store.js"></script>

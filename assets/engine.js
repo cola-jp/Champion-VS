@@ -410,6 +410,14 @@ const Engine = (() => {
     return points;
   }
 
+  /* 実数値から能力ポイントを逆算する。party.txt の取り込みで使う。
+     1ポイントで実数値がちょうど1上がるので解は一意。合わなければ PartyError。 */
+  function pointsFromStats(speciesName, natureEn, targets) {
+    const dex = DEX[speciesName];
+    if (!dex) throw new PartyError(`ポケモン名「${speciesName}」が図鑑に見つかりません。`);
+    return evPoints(dex.base, targets, natureEn, speciesName);
+  }
+
   function abilityFlags(ability) {
     return {
       mold_breaker: R.moldBreakerAbilities.includes(ability),
@@ -585,7 +593,7 @@ const Engine = (() => {
   return {
     load, stats, statValue, eff, abilityMod, damage, verdict, srDamage,
     myHit, boostedHit, theirHit, chooseMove,
-    parseParty, formatParty, selfTest, pyRound, PartyError,
+    parseParty, formatParty, selfTest, pyRound, PartyError, pointsFromStats,
     get dex() { return DEX; },
     get moves() { return MOVES; },
     get rules() { return R; },
