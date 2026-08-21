@@ -171,14 +171,50 @@ const Engine = (() => {
 
   // ------------------------------------------------------------ 自軍→相手
 
+  /* 攻撃側の特性による補正。[技タイプ, 威力, 攻撃, その他補正, 一致補正] を返す。
+     **自軍からの打点も相手からの被弾も必ずこれを通すこと。** 片方にだけ書くと
+     もう片方が抜ける（実際にてきおうりょくが相手側にしか入っておらず、
+     自軍がてきおうりょく持ちだと打点が3割以上低く出ていた）。 */
+  function offensiveMods(ability, move, m, attackerTypes, atk, protean) {
+    ability = ability || '';
+    let moveType = m.type, power = m.power, extra = 1.0;
+
+    for (const [name, skinType] of Object.entries(R.skinAbilities)) {
+      if (ability.includes(name) && moveType === 'ノーマル') {
+        moveType = skinType; extra *= 1.2;
+        break;
+      }
+    }
+    // メガソーラー: 天候に関わらず自分だけ にほんばれ 状態として扱う
+    if (ability.includes('メガソーラー')) {
+      if (move === 'ウェザーボール') { moveType = 'ほのお'; power = 100.0; }
+      if (moveType === 'ほのお') extra *= 1.5;
+      else if (moveType === 'みず') extra *= 0.5;
+    }
+    if (ability.includes('テクニシャン') && power <= 60) power *= 1.5;
+    if ((ability.includes('ちからもち') || ability.includes('ヨガパワー')) && m.cat === '物理') atk *= 2;
+    if (ability.includes('きれあじ') && SLASH.has(move)) extra *= 1.5;
+    if (ability.includes('かたいツメ') && CONTACT.has(move)) extra *= 1.3;
+
+    let stab;
+    if (protean) stab = 1.5;
+    else if (ability.includes('てきおうりょく') && attackerTypes.includes(moveType)) stab = 2.0;
+    else stab = attackerTypes.includes(moveType) ? 1.5 : 1.0;
+    return [moveType, power, atk, extra, stab];
+  }
+
   function myHit(member, move, threat, hpEff) {
     if (STATUS.has(move)) return null;
     if (OHKO.has(move)) return { move, ohko: true, acc: MOVES[move].acc };
     const m = MOVES[move];
     if (!m) return null;
-    let moveType = m.type, extra = 1.0;
-    if (member.fairy_skin && moveType === 'ノーマル') { moveType = 'フェアリー'; extra = 1.2; }
-    if (member.sharpness && SLASH.has(move)) extra *= 1.5;
+    const atk0 = m.cat === '物理' ? member.st[1] : member.st[3];
+    // へんげんじざいは場に出て最初の技で発動する。この表は対面した瞬間を見るものなので、
+    // 自軍側は発動している前提で計算する（相手側は発動・未発動の2行に分けている）。
+    const protean = ['へんげんじざい', 'リベロ'].some(k => (member.ability || '').includes(k));
+    // eslint-disable-next-line prefer-const
+    let [moveType, power, atk, extra, stab] =
+      offensiveMods(member.ability, move, m, member.types, atk0, protean);
     if (member.life_orb) extra *= 1.3;
 
     const t = eff(moveType, threat.types[0], threat.types[1]);
@@ -188,12 +224,10 @@ const Engine = (() => {
     const disguise = (abName === 'ばけのかわ');
     if (disguise) am = 1.0;   // 倍率ではなく1回無効なので、ダメージは等倍のまま
 
-    const stab = member.types.includes(moveType) ? 1.5 : 1.0;
-    const atk = m.cat === '物理' ? member.st[1] : member.st[3];
     const dfn = m.cat === '物理' ? threat.st[2] : threat.st[4];
     const [lo, hi] = m.multi
-      ? multiDamage(m.multi, m.power, atk, dfn, stab, t * am, extra)
-      : damage(m.power, atk, dfn, stab, t * am, extra);
+      ? multiDamage(m.multi, power, atk, dfn, stab, t * am, extra)
+      : damage(power, atk, dfn, stab, t * am, extra);
     const hp = hpEff === undefined || hpEff === null ? threat.st[0] : hpEff;
 
     let v = verdict(lo, hi, hp);
@@ -301,24 +335,9 @@ const Engine = (() => {
       const m = MOVES[mv];
       if (!m || !m.power) continue;
 
-      let moveType = m.type, power = m.power, extra = 1.0;
-      let atk = m.cat === '物理' ? threat.st[1] : threat.st[3];
-
-      // メガソーラー: 天候に関わらず自分だけ にほんばれ 状態として扱う
-      if (ability.includes('メガソーラー')) {
-        if (mv === 'ウェザーボール') { moveType = 'ほのお'; power = 100.0; }
-        if (moveType === 'ほのお') extra *= 1.5;
-        else if (moveType === 'みず') extra *= 0.5;
-      }
-      if (ability.includes('テクニシャン') && power <= 60) power *= 1.5;
-      if ((ability.includes('ちからもち') || ability.includes('ヨガパワー')) && m.cat === '物理') atk *= 2;
-      if (ability.includes('きれあじ') && SLASH.has(mv)) extra *= 1.5;
-      if (ability.includes('かたいツメ') && CONTACT.has(mv)) extra *= 1.3;
-
-      let stab;
-      if (threat.protean) stab = 1.5;
-      else if (ability.includes('てきおうりょく') && threat.types.includes(moveType)) stab = 2.0;
-      else stab = threat.types.includes(moveType) ? 1.5 : 1.0;
+      const atk0 = m.cat === '物理' ? threat.st[1] : threat.st[3];
+      const [moveType, power, atk, extra, stab] =
+        offensiveMods(ability, mv, m, threat.types, atk0, threat.protean);
 
       const t = eff(moveType, member.types[0], member.types[1]);
 

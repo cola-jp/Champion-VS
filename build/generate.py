@@ -361,6 +361,57 @@ def sr_damage(threat):
     return int(threat['st'][0] * t / 8)
 
 
+# ノーマル技を別タイプに変えて威力1.2倍にする特性。タイプ一致も乗る。
+SKIN_ABILITIES = {'フェアリースキン': 'フェアリー', 'スカイスキン': 'ひこう',
+                  'フリーズスキン': 'こおり', 'ドラゴンスキン': 'ドラゴン',
+                  'エレキスキン': 'でんき'}
+
+
+def offensive_mods(ability, move, m, attacker_types, atk, protean=False):
+    """攻撃側の特性による補正をまとめて返す。(技タイプ, 威力, 攻撃, その他補正, 一致補正)
+
+    **自軍からの打点も相手からの被弾も、必ずこの関数を通すこと。**
+    片方にだけ書くともう片方が抜ける。実際にてきおうりょくが相手側にしか入っておらず、
+    自軍がてきおうりょく持ちだと打点が3割以上低く出ていた。
+
+    掛ける段階は my_hit / their_hit と揃えてある。威力と攻撃は基礎ダメージに、
+    一致は stab に、残りは extra に入る。順番を変えると乱数判定が1〜2ずれる。
+    """
+    ability = ability or ''
+    move_type, power, extra = m['type'], m['power'], 1.0
+
+    for name, skin_type in SKIN_ABILITIES.items():
+        if name in ability and move_type == 'ノーマル':
+            move_type, extra = skin_type, extra * 1.2
+            break
+
+    # メガソーラー: 実際の天候に関わらず自分の行動だけを にほんばれ 状態として扱う
+    if 'メガソーラー' in ability:
+        if move == 'ウェザーボール':
+            move_type, power = 'ほのお', 100.0
+        if move_type == 'ほのお':
+            extra *= 1.5
+        elif move_type == 'みず':
+            extra *= 0.5
+
+    if 'テクニシャン' in ability and power <= 60:
+        power *= 1.5
+    if ('ちからもち' in ability or 'ヨガパワー' in ability) and m['cat'] == '物理':
+        atk *= 2
+    if 'きれあじ' in ability and move in SLASH_MOVES:
+        extra *= 1.5
+    if 'かたいツメ' in ability and move in CONTACT_MOVES:
+        extra *= 1.3
+
+    if protean:
+        stab = 1.5              # へんげんじざいが発動した技は必ずタイプ一致
+    elif 'てきおうりょく' in ability and move_type in attacker_types:
+        stab = 2.0
+    else:
+        stab = 1.5 if move_type in attacker_types else 1.0
+    return move_type, power, atk, extra, stab
+
+
 def my_hit(member, move, threat, hp_eff=None):
     """自軍の1技が相手に与えるダメージ。変化技はNone、一撃必殺は別扱い。
     hp_eff は判定・%の分母に使う相手のHP。ステルスロック込みの表を作るときに
@@ -370,11 +421,12 @@ def my_hit(member, move, threat, hp_eff=None):
     if move in OHKO_MOVES:
         return dict(move=move, ohko=True, acc=MOVES[move]['acc'])
     m = MOVES[move]
-    move_type, extra = m['type'], 1.0
-    if member['fairy_skin'] and move_type == 'ノーマル':
-        move_type, extra = 'フェアリー', 1.2
-    if member['sharpness'] and move in SLASH_MOVES:
-        extra *= 1.5
+    atk0 = member['st'][1] if m['cat'] == '物理' else member['st'][3]
+    # へんげんじざいは場に出て最初の技で発動する。この表は対面した瞬間を見るものなので、
+    # 自軍側は発動している前提で計算する（相手側は発動・未発動の2行に分けている）。
+    protean = any(k in (member.get('ability') or '') for k in ('へんげんじざい', 'リベロ'))
+    move_type, power, atk, extra, stab = offensive_mods(
+        member.get('ability'), move, m, member['types'], atk0, protean)
     if member['life_orb']:
         extra *= 1.3
     t = eff(move_type, *threat['types'])
@@ -386,13 +438,11 @@ def my_hit(member, move, threat, hp_eff=None):
     disguise = (ab_name == 'ばけのかわ')
     if disguise:
         am = 1.0        # 倍率ではなく1回無効なので、ダメージは等倍のまま
-    stab = 1.5 if move_type in member['types'] else 1.0
-    atk = member['st'][1] if m['cat'] == '物理' else member['st'][3]
     dfn = threat['st'][2] if m['cat'] == '物理' else threat['st'][4]
     if m['multi']:
-        lo, hi = multi_damage(m['multi'], m['power'], atk, dfn, stab, t * am, extra)
+        lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t * am, extra)
     else:
-        lo, hi = damage(m['power'], atk, dfn, stab, t * am, extra)
+        lo, hi = damage(power, atk, dfn, stab, t * am, extra)
     hp = threat['st'][0] if hp_eff is None else hp_eff
     # 表示用は「タイプ相性」と「防御特性による補正」を分ける。
     # 両者を掛けた数字だけ出すと、マルチスケイルで半減された2倍が ×1.0 に見えてしまう。
@@ -482,36 +532,9 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         m = MOVES.get(mv)
         if not m or not m['power']:
             continue
-        move_type, power, extra = m['type'], m['power'], 1.0
-        atk = threat['st'][1] if m['cat'] == '物理' else threat['st'][3]
-
-        # メガソーラー（メガメガニウム）は、実際の天候に関わらず自分の行動だけを
-        # にほんばれ状態として扱う。ウェザーボールがほのお・威力100に変わるのが大きく、
-        # 素の ノーマル・威力50 のまま計算すると被弾を大幅に見誤る。
-        # ソーラービームは溜めなし・威力低下なしなので、そのまま威力120で扱ってよい。
-        if 'メガソーラー' in ability:
-            if mv == 'ウェザーボール':
-                move_type, power = 'ほのお', 100.0
-            if move_type == 'ほのお':
-                extra *= 1.5
-            elif move_type == 'みず':
-                extra *= 0.5
-
-        if 'テクニシャン' in ability and power <= 60:
-            power *= 1.5
-        if ('ちからもち' in ability or 'ヨガパワー' in ability) and m['cat'] == '物理':
-            atk *= 2
-        if 'きれあじ' in ability and mv in SLASH_MOVES:
-            extra *= 1.5
-        if 'かたいツメ' in ability and mv in CONTACT_MOVES:
-            extra *= 1.3
-
-        if threat['protean']:
-            stab = 1.5          # へんげんじざいが発動した技は必ずタイプ一致になる
-        elif 'てきおうりょく' in ability and move_type in threat['types']:
-            stab = 2.0
-        else:
-            stab = 1.5 if move_type in threat['types'] else 1.0
+        atk0 = threat['st'][1] if m['cat'] == '物理' else threat['st'][3]
+        move_type, power, atk, extra, stab = offensive_mods(
+            ability, mv, m, threat['types'], atk0, threat['protean'])
 
         t = eff(move_type, *member['types'])
 
