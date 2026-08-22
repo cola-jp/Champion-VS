@@ -515,11 +515,21 @@ def my_hit(member, move, threat, hp_eff=None):
     if disguise:
         am = 1.0        # 倍率ではなく1回無効なので、ダメージは等倍のまま
     dfn = threat['st'][2] if m['cat'] == '物理' else threat['st'][4]
-    if m['multi']:
-        lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t * am, extra)
-    else:
-        lo, hi = damage(power, atk, dfn, stab, t * am, extra)
     hp = threat['st'][0] if hp_eff is None else hp_eff
+
+    # タイプ相性か特性で通らない技。damage() は最低1を返すので、そのまま計算すると
+    # 「ふゆう持ちにじしんが1ダメージ」のような、実際には起きない数字が出てしまう。
+    if t * am == 0:
+        return dict(move=move, lo=0, hi=0, pl=0, ph=0, eff=t, verdict='4発+',
+                    nullified=True,
+                    **({'ab_name': ab_name, 'ab_mult': am} if ab_name else {}))
+
+    # 特性の倍率は「その他補正」に入れる。相性と掛け合わせてから1回で切り捨てると、
+    # 段階を分けた場合と結果がずれる（ハードロックの0.75倍で実際にずれる）。
+    if m['multi']:
+        lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am)
+    else:
+        lo, hi = damage(power, atk, dfn, stab, t, extra * am)
     # 表示用は「タイプ相性」と「防御特性による補正」を分ける。
     # 両者を掛けた数字だけ出すと、マルチスケイルで半減された2倍が ×1.0 に見えてしまう。
     v = verdict(lo, hi, hp)
@@ -630,10 +640,11 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
             continue    # タイプ相性か特性で通らない技。damage() は最低1を返すので、
                         # ここで落とさないと「じしん 1%」が主表示になってしまう
         dfn = member['st'][2] if m['cat'] == '物理' else member['st'][4]
+        # 特性の倍率は my_hit と同じく「その他補正」に入れる（相性とは段階を分ける）
         if m['multi']:
-            lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t * am, extra)
+            lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am)
         else:
-            lo, hi = damage(power, atk, dfn, stab, t * am, extra)
+            lo, hi = damage(power, atk, dfn, stab, t, extra * am)
         cand = dict(move=mv, lo=lo, hi=hi, usage=usage,
                     pl=round(lo * 100 / member['st'][0]),
                     ph=round(hi * 100 / member['st'][0]))

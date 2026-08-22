@@ -237,10 +237,22 @@ const Engine = (() => {
     if (disguise) am = 1.0;   // 倍率ではなく1回無効なので、ダメージは等倍のまま
 
     const dfn = m.cat === '物理' ? threat.st[2] : threat.st[4];
-    const [lo, hi] = m.multi
-      ? multiDamage(m.multi, power, atk, dfn, stab, t * am, extra)
-      : damage(power, atk, dfn, stab, t * am, extra);
     const hp = hpEff === undefined || hpEff === null ? threat.st[0] : hpEff;
+
+    // タイプ相性か特性で通らない技。damage() は最低1を返すので、そのまま計算すると
+    // 「ふゆう持ちにじしんが1ダメージ」のような、実際には起きない数字が出てしまう。
+    if (t * am === 0) {
+      const res0 = { move, lo: 0, hi: 0, pl: 0, ph: 0, eff: t,
+                     verdict: '4発+', nullified: true };
+      if (abName) { res0.ab_name = abName; res0.ab_mult = am; }
+      return res0;
+    }
+
+    // 特性の倍率は「その他補正」に入れる。相性と掛け合わせてから1回で切り捨てると、
+    // 段階を分けた場合と結果がずれる（ハードロックの0.75倍で実際にずれる）。
+    const [lo, hi] = m.multi
+      ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am)
+      : damage(power, atk, dfn, stab, t, extra * am);
 
     let v = verdict(lo, hi, hp);
     if (disguise) v = verdictPlusOne(v);   // 皮で1回止まるぶん手数が増える
@@ -367,9 +379,10 @@ const Engine = (() => {
 
       if (t * am === 0) continue;   // 相性か特性で通らない技。damage() は最低1を返すので落とす
       const dfn = m.cat === '物理' ? member.st[2] : member.st[4];
+      // 特性の倍率は myHit と同じく「その他補正」に入れる（相性とは段階を分ける）
       const [lo, hi] = m.multi
-        ? multiDamage(m.multi, power, atk, dfn, stab, t * am, extra)
-        : damage(power, atk, dfn, stab, t * am, extra);
+        ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am)
+        : damage(power, atk, dfn, stab, t, extra * am);
       const cand = {
         move: mv, lo, hi, usage,
         pl: pyRound(lo * 100 / member.st[0]),

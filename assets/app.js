@@ -91,11 +91,14 @@
     return `<tr class="${cls}">` +
       `<td class="me">${esc(member.name)}${formLabel}` +
       `<span class="spd ${faster ? 'up' : 'dn'}">${faster ? '先手' : '後手'}</span></td>` +
-      `<td class="hit"><b>${esc(primary.move)}</b> ${primary.lo}-${primary.hi} ` +
+      `<td class="hit"><b>${esc(primary.move)}</b> ` +
+      (primary.nullified ? '<span class="nul">通らない</span> '
+                         : `${primary.lo}-${primary.hi} `) +
       `<span class="mul">×${mult(primary.eff)}</span>${tags}${sub}</td>` +
       `<td class="barcell">${bar(primary.pl, primary.ph, vcolor)}</td>` +
-      `<td class="vdcell"><span class="vd ${vclass}">${primary.verdict}</span></td>` +
-      `<td class="pct">${primary.pl}-${primary.ph}%</td>` +
+      `<td class="vdcell"><span class="vd ${vclass}">` +
+      `${primary.nullified ? '無効' : primary.verdict}</span></td>` +
+      `<td class="pct">${primary.nullified ? '—' : `${primary.pl}-${primary.ph}%`}</td>` +
       `<td class="back${danger}">被弾 <b>${esc(back.move)}</b>${backTags} ${back.ph}%${backSub}</td></tr>`;
   }
 
