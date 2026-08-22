@@ -124,6 +124,27 @@ def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0):
     return total(mh['min'], 0), total(mh['max'], 1)
 
 
+# タイプ相性の例外。効果欄の「○○タイプに対して効果抜群になる」から拾う。
+# フリーズドライ（こおりだがみずに抜群）が該当。技名を並べずに済むので、
+# 同じ書き方の技が増えても勝手に効く。
+TYPE_NAMES = {d for _, d in EFF}
+_SUPER_RE = re.compile(r'(.+?)タイプに対して効果抜群')
+
+
+def parse_type_override(effect):
+    """{防御タイプ: 倍率} を返す。該当しなければ空。"""
+    if not effect:
+        return {}
+    m = _SUPER_RE.search(effect)
+    if not m:
+        return {}
+    text = m.group(1)
+    for name in TYPE_NAMES:
+        if text.endswith(name):
+            return {name: 2.0}
+    return {}
+
+
 # 技データ: MOVES[技名] = {type, cat, power, acc, pri, effect, ranks, ohko}
 MOVES = {}
 for _r in _read_csv(MOVES_CSV):
@@ -140,7 +161,8 @@ for _r in _read_csv(MOVES_CSV):
         # 一撃必殺・連続技は技名を並べるのではなく効果欄から拾う。
         # 新しい技が増えても、効果欄に同じ書き方をしてあれば勝手に効く。
         ohko=bool(_effect and '一撃必殺' in _effect),
-        multi=parse_multi_hit(_effect, float(_r['power']) if _r['power'] else 0))
+        multi=parse_multi_hit(_effect, float(_r['power']) if _r['power'] else 0),
+        type_override=parse_type_override(_effect))
 
 
 def self_boost(move):
@@ -362,6 +384,18 @@ def eff(move_type, t1, t2=None):
     e = EFF[(move_type, t1)]
     if t2:
         e *= EFF[(move_type, t2)]
+    return e
+
+
+def move_eff(move, move_type, t1, t2=None):
+    """技ごとの相性倍率。フリーズドライのように相性表と違う倍率になる技があるので、
+    ダメージ計算は eff() ではなくこちらを通すこと。
+    上書きは防御タイプ単位で掛かるので、複合タイプでは片方だけ差し替わる
+    （フリーズドライはみず/じめんに 2×2＝4倍、みず/こおりに 2×0.5＝等倍）。"""
+    override = (MOVES.get(move) or {}).get('type_override') or {}
+    e = override.get(t1, EFF[(move_type, t1)])
+    if t2:
+        e *= override.get(t2, EFF[(move_type, t2)])
     return e
 
 

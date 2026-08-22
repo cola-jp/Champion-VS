@@ -63,7 +63,8 @@ def move_rows():
     # 解析済みのものを渡してJSは使うだけにする。
     return {name: dict(type=m['type'], cat=m['cat'], power=m['power'],
                        acc=m['acc'], pri=m['pri'], effect=m['effect'],
-                       multi=m['multi'], ohko=m['ohko'])
+                       multi=m['multi'], ohko=m['ohko'],
+                       type_override=m['type_override'])
             for name, m in MOVES.items()}
 
 

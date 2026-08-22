@@ -45,6 +45,7 @@
     const drawback = new Set(R.drawbackMoves);
 
     let tags = '';
+    if (primary.pri > 0) tags += ' <span class="pri">先制</span>';
     if (primary.hits) tags += ` <span class="hits">${esc(primary.hits)}</span>`;
     if (primary.disguise) tags += ' <span class="abm">ばけのかわ+1発</span>';
     if (primary.ab_name) tags += ` <span class="abm">${esc(primary.ab_name)}×${mult(primary.ab_mult)}</span>`;
@@ -71,6 +72,7 @@
 
     // 被弾側の注記。連続技の回数、皮で1回止まること、条件付き特性が剥がれたときの数字。
     let backTags = '';
+    if (back.pri > 0) backTags += ' <span class="pri">先制</span>';
     if (back.hits) backTags += ` <span class="hits">${esc(back.hits)}</span>`;
     if (back.disguise) backTags += ' <span class="abm">皮が剥がれた後</span>';
 

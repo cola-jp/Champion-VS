@@ -81,6 +81,17 @@ const Engine = (() => {
     return e;
   }
 
+  /* 技ごとの相性倍率。フリーズドライのように相性表と違う倍率になる技があるので、
+     ダメージ計算は eff() ではなくこちらを通すこと。
+     上書きは防御タイプ単位で掛かるので、複合タイプでは片方だけ差し替わる
+     （フリーズドライはみず/ひこうに 2×2＝4倍）。 */
+  function moveEff(move, moveType, t1, t2) {
+    const ov = (MOVES[move] && MOVES[move].type_override) || {};
+    let e = ov[t1] !== undefined ? ov[t1] : TYPES[moveType][t1];
+    if (t2) e *= ov[t2] !== undefined ? ov[t2] : TYPES[moveType][t2];
+    return e;
+  }
+
   /* 防御側特性の倍率と、発動した特性名。かたやぶりなら全て無視する。
      テーブルは配列で持っていて、先頭から順に最初に一致したものを返す（Python と同じ）。 */
   function abilityMod(ability, moveType, moldBreaker, hpFull, isSound) {
@@ -228,7 +239,7 @@ const Engine = (() => {
     // eslint-disable-next-line prefer-const
     let [moveType, power, atk, extra, stab] =
       offensiveMods(member.ability, move, m, member.types, atk0, protean);
-    const t = eff(moveType, threat.types[0], threat.types[1]);
+    const t = moveEff(move, moveType, threat.types[0], threat.types[1]);
     [atk, extra] = itemMods(member.item, m, moveType, t, atk, extra);
     let [am, abName] = abilityMod(threat.ability, moveType, member.mold_breaker,
                                   threat.hp_full !== false, SOUND_SET.has(move));
@@ -264,6 +275,7 @@ const Engine = (() => {
     };
     if (disguise) res.disguise = true;
     if (m.multi) res.hits = m.multi.label;
+    if (m.pri) res.pri = m.pri;
     if (am !== 1.0 && abName) { res.ab_name = abName; res.ab_mult = am; }
     if (m.acc && m.acc < 100) res.acc = m.acc;
     return res;
@@ -298,13 +310,17 @@ const Engine = (() => {
     return best;
   }
 
-  /* 主表示する技と次善の技。判定が最も良いものを主にし、同判定ならデメリットのない技を優先。 */
+  /* 主表示する技と次善の技。判定が最も良いものを主にする。
+     同じ確1なら先制技を優先する（素早さに関係なく先に倒せるので価値が違う）。
+     そのうえで同条件ならデメリットのない技を優先。 */
   function chooseMove(hits) {
     const attacks = hits.filter(h => h && !h.ohko);
     if (!attacks.length) return [null, null];
     const rank = h => R.verdictRank[h.verdict] || 0;
+    const first = h => (h.verdict === '確1' && (h.pri || 0) > 0) ? 0 : 1;
     const sorted = attacks.slice().sort((a, b) =>
       (rank(b) - rank(a)) ||
+      (first(a) - first(b)) ||
       ((DRAWBACK.has(a.move) ? 1 : 0) - (DRAWBACK.has(b.move) ? 1 : 0)) ||
       (b.lo - a.lo));
     const primary = sorted[0];
@@ -364,7 +380,7 @@ const Engine = (() => {
       let [moveType, power, atk, extra, stab] =
         offensiveMods(ability, mv, m, threat.types, atk0, threat.protean);
 
-      const t = eff(moveType, member.types[0], member.types[1]);
+      const t = moveEff(mv, moveType, member.types[0], member.types[1]);
       [atk, extra] = itemMods(threat.item, m, moveType, t, atk, extra);
 
       // 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
@@ -389,11 +405,18 @@ const Engine = (() => {
         ph: pyRound(hi * 100 / member.st[0]),
       };
       if (m.multi) cand.hits = m.multi.label;
+      if (m.pri) cand.pri = m.pri;
       (usage > R.rareMoveThreshold ? main : rare).push(cand);
     }
     const pool = main.length ? main : rare;
     if (!pool.length) return { move: '—', lo: 0, hi: 0, pl: 0, ph: 0 };
     let best = pool.reduce((a, b) => (b.hi > a.hi ? b : a));
+    // 先制技で落とされるなら、素早さで勝っていても行動前に倒される。
+    // 他にもっとダメージの大きい技があっても、こちらを主表示にする。
+    const ko = pool.filter(c => (c.pri || 0) > 0 && c.hi >= member.st[0]);
+    if (ko.length && (best.pri || 0) <= 0) {
+      best = ko.reduce((a, b) => (b.hi > a.hi ? b : a));
+    }
     if (main.length && rare.length) {
       const topRare = rare.reduce((a, b) => (b.hi > a.hi ? b : a));
       if (topRare.hi > best.hi) best = Object.assign({}, best, { rare: topRare });

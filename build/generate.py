@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     MOVE_NAME_EN_JA, ABILITIES, fix_move_name, is_mega,
                     PokemonNotFoundError, RegionFormError,
-                    stats, eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
+                    stats, eff, move_eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
                     self_boost, rank_multiplier, multi_damage, verdict_plus_one)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES,
@@ -504,7 +504,7 @@ def my_hit(member, move, threat, hp_eff=None):
     protean = any(k in (member.get('ability') or '') for k in ('へんげんじざい', 'リベロ'))
     move_type, power, atk, extra, stab = offensive_mods(
         member.get('ability'), move, m, member['types'], atk0, protean)
-    t = eff(move_type, *threat['types'])
+    t = move_eff(move, move_type, *threat['types'])
     atk, extra = item_mods(member.get('item'), m, move_type, t, atk, extra)
     am, ab_name = ability_mod(threat['ability'], move_type, member['mold_breaker'],
                               hp_full=(threat['hp_full'] is not False),
@@ -542,6 +542,8 @@ def my_hit(member, move, threat, hp_eff=None):
         result['disguise'] = True
     if m['multi']:
         result['hits'] = m['multi']['label']
+    if m['pri']:
+        result['pri'] = m['pri']
     if am != 1.0 and ab_name:
         result['ab_name'] = ab_name
         result['ab_mult'] = am
@@ -622,7 +624,7 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         move_type, power, atk, extra, stab = offensive_mods(
             ability, mv, m, threat['types'], atk0, threat['protean'])
 
-        t = eff(move_type, *member['types'])
+        t = move_eff(mv, move_type, *member['types'])
         atk, extra = item_mods(threat['item'], m, move_type, t, atk, extra)
 
         # 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
@@ -650,6 +652,8 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
                     ph=round(hi * 100 / member['st'][0]))
         if m['multi']:
             cand['hits'] = m['multi']['label']
+        if m['pri']:
+            cand['pri'] = m['pri']
         (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)
 
     # 主表示は採用率が閾値を超える技の中での最大打点。低採用の技しか無いポケモンだけ、
@@ -658,6 +662,11 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
     if not pool:
         return dict(move='—', lo=0, hi=0, pl=0, ph=0)
     best = max(pool, key=lambda x: x['hi'])
+    # 先制技で落とされるなら、素早さで勝っていても行動前に倒される。
+    # 他にもっとダメージの大きい技があっても、こちらを主表示にする。
+    ko = [c for c in pool if c.get('pri', 0) > 0 and c['hi'] >= member['st'][0]]
+    if ko and best.get('pri', 0) <= 0:
+        best = max(ko, key=lambda x: x['hi'])
     # 低採用の技が主要技を上回るときだけ、補足として持たせる
     if main and rare:
         top_rare = max(rare, key=lambda x: x['hi'])
@@ -668,12 +677,20 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
 
 def choose_move(hits):
     """主表示する技と、次善の技を選ぶ。
-    判定が最も良い技を主にし、同判定ならデメリットのない技（はかいこうせん以外）を優先する。"""
+    判定が最も良い技を主にする。同じ確1なら**先制技を優先する** —
+    素早さに関係なく先に倒せるので、同じ確1でも価値が違う。
+    そのうえで同条件ならデメリットのない技（はかいこうせん以外）を優先する。"""
     attacks = [h for h in hits if h and not h.get('ohko')]
     if not attacks:
         return None, None
-    attacks = sorted(attacks, key=lambda m: (-VERDICT_RANK.get(m['verdict'], 0),
-                                             m['move'] in DRAWBACK_MOVES, -m['lo']))
+
+    def key(m):
+        first = m['verdict'] == '確1' and m.get('pri', 0) > 0
+        return (-VERDICT_RANK.get(m['verdict'], 0),
+                0 if first else 1,
+                m['move'] in DRAWBACK_MOVES, -m['lo'])
+
+    attacks = sorted(attacks, key=key)
     primary = attacks[0]
     alt = None
     for m in attacks[1:]:
