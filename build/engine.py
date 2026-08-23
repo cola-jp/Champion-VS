@@ -118,6 +118,27 @@ def parse_multi_hit(effect, power):
                 label=f'{lo}〜{hi}回' if hi != lo else f'{lo}回')
 
 
+# 倒れた味方の数で威力が変わる技（おはかまいり）の前提。
+# シングルは3体選出なので、味方が倒れる数は最大2。この手の技を撃つ／撃たれるのは
+# 終盤で、そのときには2体落ちていることがほとんどなので、最大値で固定する。
+# 戦況によって変わる値を技データには書けないため、ここで前提を1箇所に置く。
+FAINTED_ALLIES = 2
+
+_PER_FAINT_RE = re.compile(r'[（(](\d+)[＋+](\d+)[×xX*]人数[）)]')
+
+
+def power_per_faint(effect, power):
+    """「威力上昇（50＋50×人数）」から実際に使う威力を出す。書式が無ければ元の威力。
+    一撃必殺・連続技と同じく、技名を並べずに効果欄から拾う。
+    倒れた数だけは戦況なので、FAINTED_ALLIES の仮定で固定している。"""
+    if not effect:
+        return power
+    m = _PER_FAINT_RE.search(effect)
+    if not m:
+        return power
+    return float(m.group(1)) + float(m.group(2)) * FAINTED_ALLIES
+
+
 def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0):
     """連続技の合計ダメージ。(最低回数×最低乱数, 最高回数×最高乱数) を返す。
     1発ずつ damage() を通して足すこと。各発で切り捨てが入るので、
@@ -156,9 +177,12 @@ for _r in _read_csv(MOVES_CSV):
     if not _r['name']:
         continue
     _effect = _r['effect'] or None
+    _base_power = float(_r['power']) if _r['power'] else 0
     MOVES[fix_move_name(_r['name'])] = dict(
         type=_r['type'], cat=_r['category'],
-        power=float(_r['power']) if _r['power'] else 0,
+        # CSVには技本来の威力を書き、倒れた味方の数による上昇はここで乗せる。
+        # 「50」と書いてあるのに150で計算されるので、効果欄を読んで確認すること。
+        power=power_per_faint(_effect, _base_power),
         acc=float(_r['accuracy']) if _r['accuracy'] else None,
         pri=float(_r['priority']) if _r['priority'] else 0.0,
         effect=_effect,
