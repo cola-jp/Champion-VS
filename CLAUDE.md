@@ -21,6 +21,7 @@ build/party.py              party.txt を読んで PARTY を組み立てるロ�
 build/generate.py           相手の型を組む処理とダメージ計算。整合性チェックの入口
 build/export_app_data.py    ブラウザが読む appdata/*.json を書き出す
 build/consult.py            構築相談用の集計をMarkdownで書き出す（表とは別の切り口）
+build/seed_party.py         使用率データから party.txt のブロックを起こす（軸を決めた時の叩き台）
 build/verify_engine.js      JS移植がPython版と同じ数値を出すか確認する（node で実行）
 appdata/*.json              生成物。ブラウザ用のデータ。直接編集しない
 index.html                  ダメージ表。登録したパーティで計算する
@@ -61,9 +62,20 @@ node build/verify_engine.js      # JS移植がPython版と一致するか確認
 `build/consult.py` がそちらを担当し、1枚のMarkdownを書き出す（チャットにそのまま貼れる）。
 
 ```bash
-python build/consult.py -o consult.md         # 現在の party.txt で
-python build/consult.py --party 案A.txt       # 別案で
+python build/consult.py -o consult.md              # 現在の party.txt で
+python build/consult.py --party 案A.txt            # 別案で
+python build/consult.py --party 軸.txt --candidates # 軸だけ渡して空き枠の候補を出す
 ```
+
+**パーティは6体揃っていなくてよい。** `_parse_party` は体数を見ていないので、
+軸を2体書いたファイルをそのまま渡せる。軸から組み始めるときの入口がこれ。
+軸の型は `build/seed_party.py メガスターミー メガメガニウム:HC` で使用率データから起こせる。
+
+`--candidates` は環境上位の型を**そのまま味方候補として**扱って計算する。
+図鑑から総当たりしないのは、配分と技構成を仮定しないと計算できないから。
+使用率データの型は実際に使われている調整なので、仮定を持ち込まずに済む。
+そのぶん候補は環境上位に限られる。**対面性能だけで並べていて、役割の重複・
+並びとしての相性・積みの通し方は見ていない。** 候補の絞り込み以上に使わせないこと。
 
 **ダメージ計算をここに書き足さないこと。** `generate.my_hit` / `their_hit` / `choose_move` を
 そのまま呼んでおり、表と数字が食い違わないのはそのため。consult.py が持ってよいのは
@@ -73,6 +85,16 @@ python build/consult.py --party 案A.txt       # 別案で
 `--party` を使うために `generate.build_members()` は引数でパーティを受け取れる。
 `party.py` は import 時に `party.txt` を読んで `PARTY` を作るので、別案は
 `party._parse_party(text)` を通してから渡す。
+
+### 特性の英語名→日本語の対応表は「表に出る特性」しか持っていない
+
+`generate.ABILITY_JA` は**最も使われている特性**（＝表に表示されるもの）だけの対応表で、
+使用率データに出てくる全特性を訳せるわけではない。メガ運用のポケモンは通常形態の特性が
+表に出ないので、対応表に無い（スターミーの `natural-cure` など）。
+
+`build/seed_party.py` はこれに引っかかる。訳せなかったときは図鑑の先頭の特性を入れ、
+`#` コメントで英語名を残して確認できるようにしてある。**黙って別の特性を入れないこと。**
+メガ形態を指定した場合は特性が差し替わるので打点に影響しないが、通常形態のときは効く。
 
 ## 絶対に間違えてはいけないドメイン知識
 

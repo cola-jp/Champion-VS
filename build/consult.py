@@ -6,6 +6,11 @@
     python build/consult.py -o consult.md        # ファイルに書く
     python build/consult.py --party 案A.txt      # 別のパーティ案で
     python build/consult.py --top 30             # 相手を上位30位に絞る
+    python build/consult.py --candidates         # 空き枠に入れる候補を出す（軸だけのときに使う）
+
+パーティは6体揃っていなくてよい。軸だけ2体書いたファイルを渡せば、その2体で
+環境のどこが見られてどこが見られないかが出る。`build/seed_party.py` を使えば
+使用率データから軸のブロックを起こせるので、育てていないポケモンでも試せる。
 
 index.html は「対面したこの1体に何を撃つか」を出す道具なので、構築相談には向かない。
 相談で要るのは「環境全体に対してどこで詰むか」という集計で、必要な切り口が違う。
@@ -22,7 +27,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine import USAGE, BY_DEX_NO, NAT_JA, verdict, VERDICT_RANK, is_mega
+from engine import (MOVES, USAGE, BY_DEX_NO, NAT_JA, verdict, VERDICT_RANK, is_mega)
 import party as party_mod
 from generate import (build_threats, build_members, my_hit, their_hit, choose_move,
                       ABILITY_JA)
@@ -136,15 +141,19 @@ def sec_scoreboard(members, threats, matrix):
     return '\n'.join(out) + '\n'
 
 
+def answers(c):
+    """その1マスで「対面から仕事ができる」か。
+    1発で落とせて、かつ1発では落とされないか、落とされるとしても先に動ける。"""
+    return (c['verdict'] in KO_VERDICTS
+            and (c['back_verdict'] not in ('確1', '乱1') or c['faster']))
+
+
 def hard_threats(members, threats, matrix):
     """重い相手。対面から仕事ができる駒が1つも無い行を拾う。"""
     rows = []
     for t, row in zip(threats, matrix):
         ko = [i for i, c in enumerate(row) if c['verdict'] in KO_VERDICTS]
-        # 落とせる駒のうち、1発で落とされないか、落とされるとしても先に動けるもの
-        answers = [i for i in ko
-                   if row[i]['back_verdict'] not in ('確1', '乱1') or row[i]['faster']]
-        if not answers:
+        if not any(answers(c) for c in row):
             rows.append((t, row, ko))
     return rows
 
@@ -182,6 +191,94 @@ def sec_hard(members, threats, matrix):
         else:
             out.append('- 1発で落とせる駒: なし')
         out.append('')
+    return '\n'.join(out) + '\n'
+
+
+def env_candidates(threats):
+    """環境上位の型を、そのまま「味方に入れたらどうなるか」を試せるメンバーにする。
+
+    候補を図鑑から総当たりしないのは、配分と技構成を仮定しないと計算できないから。
+    使用率データに入っている型は実際に使われている調整なので、仮定を持ち込まずに済む。
+    そのぶん候補は環境上位に限られる（圏外のポケモンを試したいときは
+    party.txt の書式で書いて --party に渡す）。
+
+    マルチスケイルやへんげんじざいの2行分割は同じ1体なので、
+    （名前, 配分パターン）で重複を除く。"""
+    out, seen = [], set()
+    for t in threats:
+        key = (t['name'], t['pattern'])
+        if key in seen:
+            continue
+        seen.add(key)
+        ab = ABILITY_JA.get(t['ability'], t['ability']) or ''
+        moves = []
+        for mv, _u in t['moves_use']:
+            if mv in MOVES and mv not in moves:
+                moves.append(mv)
+            if len(moves) == 4:
+                break
+        m = party_mod._make_member(
+            f"env{t['rank']}_{t['pattern']}", t['name'], t['form'], t['name'],
+            [0] * 6, 'hardy', ab, t['item'], moves, t['scarf'])
+        # 実数値・タイプ・素早さは使用率データ側で計算済みのものを使う。
+        # ev と nature を持たせていないのはそのため（逆算はしない）。
+        m['st'], m['types'], m['speed'] = t['st'], t['types'], t['speed']
+        # _ability_flags は完全一致なので、メガ形態のように特性名が図鑑の連結文字列
+        # （複数特性がつながったもの）だと外れる。打点に効くかたやぶりだけ入れ直す。
+        m['mold_breaker'] = any(k in ab for k in
+                                ('かたやぶり', 'ターボブレイズ', 'テラボルテージ'))
+        m['rank'], m['pattern'], m['share'] = t['rank'], t['pattern'], t['share']
+        out.append(m)
+    return out
+
+
+def sec_candidates(members, threats, matrix, limit=15):
+    """空き枠の候補。いま重い相手を、環境のどの型なら見られるかで並べる。"""
+    hard = hard_threats(members, threats, matrix)
+    out = ['## 空き枠の候補', '']
+    if not hard:
+        out.append('重い相手が無いので、この節で並べるものがない。')
+        return '\n'.join(out) + '\n'
+
+    have = {m['name'].replace('メガ', '', 1) if is_mega(m['name']) else m['name']
+            for m in members}
+    hard_ts = [t for t, _row, _ko in hard]
+
+    scored = []
+    for cand in env_candidates(threats):
+        base = cand['name'].replace('メガ', '', 1) if is_mega(cand['name']) else cand['name']
+        if base in have:
+            continue        # すでに入っている枠を候補に出しても意味がない
+        solved = [t for t in hard_ts if answers(cell(cand, t))]
+        if not solved:
+            continue
+        role = sum(1 for t in threats if answers(cell(cand, t)))
+        scored.append((len(solved), role, cand, solved))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+
+    out += [
+        f'いま重い相手が{len(hard)}行ある。それを「対面から見られる」型を、',
+        '使用率データに入っている環境上位の型の中から探して並べたもの。',
+        '',
+        '**この並びは対面性能だけで付けている。** 役割の重複、並びとしての相性、',
+        '積みの通し方、天候やサポートは見ていないので、候補の絞り込みにだけ使うこと。',
+        '「仕事あり」はその候補が環境全体（' + str(len(threats)) + '行）で',
+        '対面から仕事ができる行の数で、器用さの目安。',
+        '',
+        f'| 候補 | 重い相手を何行見られるか | 仕事あり | 見られる相手 |',
+        '|---|---|---|---|']
+    for n, role, cand, solved in scored[:limit]:
+        names = ' , '.join(f'{threat_label(t)}{t["pattern"]}' for t in solved[:5])
+        if len(solved) > 5:
+            names += f' ほか{len(solved) - 5}'
+        out.append(f"| {label(cand)} {cand['pattern']} | {n}/{len(hard)} | "
+                   f"{role}/{len(threats)} | {names} |")
+    if not scored:
+        out.append('| — | 0 | — | 環境上位の型では見られる相手が見つからなかった |')
+    out.append('')
+    out.append('候補の詳しい型（実数値・技）は「対面表」の相手側の行と同じ。'
+               '試すときは `python build/seed_party.py <名前>` でブロックを起こして'
+               'パーティに足し、`--party` で回し直す。')
     return '\n'.join(out) + '\n'
 
 
@@ -311,6 +408,8 @@ def main():
     ap.add_argument('--party', help='party.txt 以外のパーティ定義ファイル')
     ap.add_argument('--top', type=int,
                     help=f'相手を上位N位に絞る（既定は{THREAT_RANK_LIMIT}位まで全部）')
+    ap.add_argument('--candidates', action='store_true',
+                    help='重い相手を見られる型を環境上位から探して並べる（軸だけのときに使う）')
     args = ap.parse_args()
 
     members = load_members(args.party)
@@ -324,6 +423,7 @@ def main():
         sec_party(members),
         sec_scoreboard(members, threats, matrix),
         sec_hard(members, threats, matrix),
+        sec_candidates(members, threats, matrix) if args.candidates else '',
         sec_matrix(members, threats, matrix),
         sec_speed(members, threats),
         sec_environment(threats),
