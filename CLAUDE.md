@@ -20,6 +20,7 @@ build/engine.py             データ読み込み・実数値計算・タイプ�
 build/party.py              party.txt を読んで PARTY を組み立てるローダー。直接は編集しない
 build/generate.py           相手の型を組む処理とダメージ計算。整合性チェックの入口
 build/export_app_data.py    ブラウザが読む appdata/*.json を書き出す
+build/consult.py            構築相談用の集計をMarkdownで書き出す（表とは別の切り口）
 build/verify_engine.js      JS移植がPython版と同じ数値を出すか確認する（node で実行）
 appdata/*.json              生成物。ブラウザ用のデータ。直接編集しない
 index.html                  ダメージ表。登録したパーティで計算する
@@ -52,6 +53,26 @@ node build/verify_engine.js      # JS移植がPython版と一致するか確認
 **`appdata/*.json` は生成物。直接編集しても次の書き出しで消える。**
 
 公開先: https://cola-jp.github.io/Champion-VS/ （main ブランチのルートを GitHub Pages が配信）
+
+## 構築相談は index.html ではなく consult.py
+
+`index.html` は「対面したこの1体に何を撃つか」を出す道具。構築を考えるときに要るのは
+「環境全体に対してどこで詰むか」という集計で、必要な切り口が違う。
+`build/consult.py` がそちらを担当し、1枚のMarkdownを書き出す（チャットにそのまま貼れる）。
+
+```bash
+python build/consult.py -o consult.md         # 現在の party.txt で
+python build/consult.py --party 案A.txt       # 別案で
+```
+
+**ダメージ計算をここに書き足さないこと。** `generate.my_hit` / `their_hit` / `choose_move` を
+そのまま呼んでおり、表と数字が食い違わないのはそのため。consult.py が持ってよいのは
+集計と文章だけ。判定の基準（`KO_VERDICTS`、重い相手の定義）を変えるとClaudeに渡る結論が
+変わるので、変えるときは出力を読んで妥当か確かめる。
+
+`--party` を使うために `generate.build_members()` は引数でパーティを受け取れる。
+`party.py` は import 時に `party.txt` を読んで `PARTY` を作るので、別案は
+`party._parse_party(text)` を通してから渡す。
 
 ## 絶対に間違えてはいけないドメイン知識
 

@@ -701,10 +701,11 @@ def choose_move(hits):
     return primary, alt
 
 
-def build_members():
-    """party.py の定義から実数値つきのメンバーリストを作る。"""
+def build_members(party=None):
+    """party.py の定義から実数値つきのメンバーリストを作る。
+    party を渡すと、party.txt ではなくそのリストから作る（別案の検討に使う）。"""
     out = []
-    for p in PARTY:
+    for p in (PARTY if party is None else party):
         dex = DEX[p['species']]
         st = stats(dex['base'], p['ev'], p['nature'])
         m = dict(p)
