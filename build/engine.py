@@ -26,6 +26,11 @@ DEX_CSV = os.path.join(DATA, 'dex.csv')
 MOVES_CSV = os.path.join(DATA, 'moves.csv')
 TYPE_CHART_CSV = os.path.join(DATA, 'type_chart.csv')
 JSON_PATH = os.path.join(DATA, '技使用率データ.JSON')
+# 配布物（build/make_skill.py が作る claude.ai 用のスキル）では ASCII 名で入れている。
+# zip に日本語のファイル名を入れると、環境によっては化けて取り出せない。
+# リポジトリ側の名前は取得元が分かるように日本語のままにしてあるので、両方見る。
+if not os.path.exists(JSON_PATH):
+    JSON_PATH = os.path.join(DATA, 'usage.json')
 MOVE_NAME_JSON_PATH = os.path.join(DATA, 'move_names_en_ja.json')
 ABILITY_JSON_PATH = os.path.join(DATA, 'abilities_ja.json')
 

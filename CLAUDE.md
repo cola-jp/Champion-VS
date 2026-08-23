@@ -22,6 +22,8 @@ build/generate.py           相手の型を組む処理とダメージ計算。�
 build/export_app_data.py    ブラウザが読む appdata/*.json を書き出す
 build/consult.py            構築相談用の集計をMarkdownで書き出す（表とは別の切り口）
 build/seed_party.py         使用率データから party.txt のブロックを起こす（軸を決めた時の叩き台）
+build/make_skill.py         claude.ai 用のスキルを dist/ に組み立てる（配布物。手で作らない）
+skill/SKILL.md              そのスキルの本文。バンドルの中身はここと build/ と data/ から作る
 build/verify_engine.js      JS移植がPython版と同じ数値を出すか確認する（node で実行）
 appdata/*.json              生成物。ブラウザ用のデータ。直接編集しない
 index.html                  ダメージ表。登録したパーティで計算する
@@ -95,6 +97,25 @@ python build/consult.py --party 軸.txt --candidates # 軸だけ渡して空き�
 `build/seed_party.py` はこれに引っかかる。訳せなかったときは図鑑の先頭の特性を入れ、
 `#` コメントで英語名を残して確認できるようにしてある。**黙って別の特性を入れないこと。**
 メガ形態を指定した場合は特性が差し替わるので打点に影響しないが、通常形態のときは効く。
+
+## claude.ai 用のスキルは必ず make_skill.py で作る
+
+ローカルのリポジトリが無くても相談できるように、スクリプトとデータをまとめた
+スキルを `dist/` に組み立てられる。**手で組み立てないこと。**
+使用率データは毎月差し替わるので、手で作ったバンドルは次の月には古い数字を出す。
+
+```bash
+python build/make_skill.py     # dist/pokemon-champions-team-building.zip ができる
+```
+
+- 配置は `engine.py` のパス解決に合わせてある（`ROOT` = scripts の親、`DATA` = `ROOT/data`）。
+  スクリプトを `scripts/`、データを `data/` に置けばコードは無改造で動く。
+- `party.py` は import した時点で `party.txt` を読み、無いと止まる。
+  だからバンドルにも `party.txt` を入れている。消さないこと。
+- **zip に日本語のファイル名を入れない。** 環境によっては化けて取り出せない。
+  使用率データは配布物では `usage.json` にしていて、`engine.py` が両方の名前を見る。
+- **データを更新したら流し直して登録し直す。** スキルはスナップショットなので、
+  リポジトリだけ新しくしても claude.ai 側は古いままになる。
 
 ## 絶対に間違えてはいけないドメイン知識
 

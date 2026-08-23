@@ -76,6 +76,22 @@ python build/consult.py --party 軸.txt --candidates -o 軸.md
 数字は `index.html` と同じエンジン（`build/generate.py`）から出しているので、
 表と相談パックで値が食い違うことは無い。
 
+### claude.ai で相談する
+
+ローカルにリポジトリが無くても同じ計算ができるように、スキルとして固めて配れる。
+
+```bash
+python build/make_skill.py
+```
+
+`dist/pokemon-champions-team-building.zip`（約160KB）ができるので、claude.ai の
+設定からスキルとして登録する。普通のチャットで「◯◯を軸に組みたい」と言えば、
+claude.ai 側のコード実行環境で `seed_party.py` と `consult.py` が動く。
+出る数字はリポジトリで実行したものと一致する（同じスクリプトと同じデータが入っている）。
+
+**スキルは登録した時点のスナップショット。** 使用率データを差し替えたら
+`make_skill.py` を流し直して登録し直す。忘れると先月の環境で相談することになる。
+
 ## データを更新する
 
 1. `data/技使用率データ.JSON` を新しい月のものに差し替える。
