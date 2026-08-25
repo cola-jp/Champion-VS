@@ -24,7 +24,7 @@ from itertools import combinations
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from generate import build_threats, process_check, ABILITY_JA
+from generate import build_threats, process_check, type_weakness, ABILITY_JA
 from consult import load_members, label
 from party import THREAT_RANK_LIMIT
 
@@ -214,6 +214,9 @@ def main():
         print(f'{t0["rank"]}位 {name}（{keys}）')
         print(f'   {"/".join(x for x in t0["types"] if x)} / 特性 {ab} / {t0["item"] or "—"}'
               f' / S{t0["speed"]}{"★" if t0["scarf"] else ""}')
+        x4, x2 = type_weakness(t0['types'], t0['ability'])
+        weak = (f'×4 {" ".join(x4)}  ' if x4 else '') + (f'×2 {" ".join(x2)}' if x2 else '')
+        print(f'   弱点: {weak or "なし"}')
         graded = []
         for g in groups:
             for use_mega in (True, False):

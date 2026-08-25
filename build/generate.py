@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     MOVE_NAME_EN_JA, ABILITIES, fix_move_name, is_mega,
                     PokemonNotFoundError, RegionFormError,
+                    IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
                     stats, eff, move_eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
                     self_boost, rank_multiplier, multi_damage, verdict_plus_one)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -449,6 +450,40 @@ def build_threats(limit=None):
 
 
 # ---------------------------------------------------------------- ダメージ計算
+
+def type_weakness(types, ability):
+    """相手の弱点を (4倍以上, 2倍) に分けて返す。表示専用で、ダメージ計算には使わない。
+
+    **タイプごとに効く防御特性だけ反映する。** ふゆう・もらいび・ちょすい・どしょく（無効）、
+    あついしぼう・たいねつ・すいほう（半減）、もふもふ（ほのおだけ2倍）。
+    マルチスケイル・ハードロック・がんじょう・ばけのかわは**入れない** —
+    タイプに依らず全部の倍率を動かすので、入れると「弱点表」ではなくなる
+    （マルチスケイルを入れるとカイリューの弱点が消える）。
+
+    特性名は英語スラッグのことも日本語のこともあるので、ability_mod と同じく
+    両方のテーブルを同じ文字列に当てる。"""
+    ab = ability or ''
+    x4, x2 = [], []
+    for atk in TYPE_COLOR:
+        e = eff(atk, *types)
+        for table in (IMMUNE_JA, IMMUNE_EN):
+            for name, typ in table.items():
+                if name in ab and typ == atk:
+                    e = 0.0
+        for table in (HALF_JA, HALF_EN):
+            for name, typs in table.items():
+                if name in ab and atk in typs:
+                    e *= 0.5
+        for table in (DOUBLE_JA, DOUBLE_EN):
+            for name, typs in table.items():
+                if name in ab and atk in typs:
+                    e *= 2.0
+        if e >= 4:
+            x4.append(atk)
+        elif e >= 2:
+            x2.append(atk)
+    return x4, x2
+
 
 def sr_damage(threat):
     """自分がステルスロックを設置している場合に、相手が受けるダメージ。

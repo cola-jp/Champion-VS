@@ -240,3 +240,14 @@ display:flex;justify-content:space-between;gap:8px}
   .slots{grid-template-columns:repeat(2,1fr)}
   .grp{flex-direction:column;gap:6px}
 }
+
+/* 相手の弱点。4倍は塗りつぶし、2倍は縁取りで、数字を読まなくても区別できるようにする */
+.wkrow{display:flex;gap:5px;flex-wrap:wrap;align-items:center;
+padding:7px 14px;border-top:1px solid var(--line);background:#171b25}
+.wklbl{font-size:10.5px;font-weight:800;color:var(--ink3);letter-spacing:.08em;
+margin-left:4px;margin-right:1px}
+.wklbl:first-child{margin-left:0}
+.wk4{font-size:12px;font-weight:800;padding:2px 8px;border-radius:4px;
+background:var(--tc);color:#10121a;border:1px solid var(--tc)}
+.wk2{font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px;
+background:transparent;color:var(--tc);border:1px solid var(--tc)}

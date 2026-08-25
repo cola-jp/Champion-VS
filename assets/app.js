@@ -151,6 +151,7 @@
       `<span class="stats">H<b>${st[0]}</b> A<b>${st[1]}</b> B<b>${st[2]}</b> C<b>${st[3]}</b> ` +
       `D<b>${st[4]}</b> S<b>${threat.speed}</b>${threat.scarf ? '★' : ''}</span>` +
       `<a class="top" href="#idx">↑</a></div>` +
+      `<div class="wkrow">${UI.weakChips(threat, R.typeColor)}</div>` +
       `<div class="mvrow">${moveChips}</div>` +
       `<table><thead><tr><th>味方</th><th>最大打点</th><th>ダメージ</th>` +
       `<th>判定</th><th>%</th><th>被弾</th></tr></thead><tbody>${rows}</tbody></table></section>`;

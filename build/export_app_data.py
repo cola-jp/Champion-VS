@@ -30,7 +30,7 @@ from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
 import generate
 from generate import (build_threats, TYPE_COLOR, VERDICT_CLASS, ABILITY_JA,
                       ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES,
-                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS)
+                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS, type_weakness)
 
 OUT_DIR = os.path.join(ROOT, 'appdata')
 
@@ -48,6 +48,9 @@ def threat_rows():
             ability=t['ability'], ability_ja=ABILITY_JA.get(t['ability'], t['ability']),
             speed=t['speed'], scarf=t['scarf'], item=t['item'],
             moves=[{'name': mv, 'usage': u} for mv, u in t['moves_use']],
+            # 弱点は Python 側で出して渡す。JS で相性表を引き直すと、
+            # タイプ別に効く特性（ふゆう・あついしぼう等）の扱いが必ず食い違う
+            **dict(zip(('weak4', 'weak2'), type_weakness(t['types'], t['ability']))),
         ))
     return out
 
