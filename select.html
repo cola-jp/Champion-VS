@@ -1,0 +1,46 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#12151d"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>選出補助</title>
+<link rel="stylesheet" href="assets/style.css">
+</head><body>
+
+<header><div class="bar">
+  <h1>選出補助</h1>
+  <span class="tgs">
+    <a class="navlink" href="index.html">ダメージ表</a>
+    <a class="navlink" href="party.html">パーティー</a>
+  </span>
+  <span class="count" id="cnt"></span>
+</div></header>
+
+<main>
+  <div id="pstat" class="pstat"></div>
+
+  <section class="card" id="inputCard">
+    <div class="chead"><span class="nm">相手のパーティー</span>
+      <span class="tag">チーム選択画面を見ながら6体入れる。数文字で候補が出る</span>
+      <span class="stats"><button class="tg" id="clear">全部消す</button></span>
+    </div>
+    <div id="slots" class="slots"></div>
+  </section>
+
+  <div id="result"><div class="empty"><h2>読み込み中…</h2></div></div>
+
+  <p class="note">相手の名前を入れると、その1体ずつに対して自分のどの駒が「処理できる」かを出す。<br>
+  <b>処理できる</b>＝①先手（素早さ上か先制技）で1発で倒せる ②後手でも相手の最大打点を耐えて倒せる
+  ③打ち合いで先に倒しきる、のいずれか。乱数はこちらに不利な側で固定していて、
+  自分は最低乱数・相手は最高乱数。相手の回復技とたべのこしも差し引いている。<br>
+  <b>安定</b>はその相手のすべての型を処理できる駒、<b>条件付き</b>は一部の型だけ処理できる駒。
+  相手の型は対戦前には分からないので、この2つは分けてある。型の%は判明している配分の中での比率。<br>
+  <b>推奨選出</b>は3体の組み合わせを全通り試して、安定して見られる相手が最も多くなるものを選んでいる。
+  <b>メガシンカできるのは1体だけ</b>なので、メガストーン持ちを複数選ぶ場合は
+  どれをメガにするかまで込みで計算している。<br>
+  状態異常・天候・積み・交代読み・急所・みがわりは計算に入れていない。
+  ステルスロックも未設置の状態で計算している。</p>
+</main>
+
+<script src="assets/engine.js"></script>
+<script src="assets/store.js"></script>
+<script src="assets/select.js"></script>
+</body></html>

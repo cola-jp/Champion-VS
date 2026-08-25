@@ -212,3 +212,31 @@ padding:8px 12px;line-height:1.65;white-space:pre-wrap}
 background:#0e1119;border:1px solid var(--line);border-radius:8px;padding:11px 13px;
 white-space:pre-wrap;color:var(--ink2);max-height:300px;overflow:auto}
 datalist{display:none}
+
+/* ---------------------------------------------------------------- 選出補助 */
+/* 入力欄は6つ並べたまま作り直さない。作り直すとIMEの変換が中断される
+   （パーティー登録画面で実際に踏んだ不具合と同じ）。 */
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;padding:12px 14px}
+.slot{position:relative}
+.slot input{width:100%;background:var(--surface2);border:1px solid var(--line);color:var(--ink);
+padding:11px 12px;border-radius:8px;font-size:15px;font-family:inherit}
+.slot input:focus{outline:2px solid var(--rng);outline-offset:1px}
+.slot input::placeholder{color:var(--ink3)}
+.sug{position:absolute;left:0;right:0;top:calc(100% + 3px);z-index:20;
+display:flex;flex-direction:column;background:var(--surface2);border-radius:8px;overflow:hidden;
+box-shadow:0 8px 22px #0009}
+.sug:empty{display:none}
+.sug button{background:none;border:0;border-bottom:1px solid var(--line);color:var(--ink);
+text-align:left;padding:9px 11px;font-size:14px;font-family:inherit;cursor:pointer;
+display:flex;justify-content:space-between;gap:8px}
+.sug button:last-child{border-bottom:0}
+.sug button:hover{background:#2b3142}
+.sug i{font-style:normal;color:var(--ink3);font-size:11.5px}
+.pbody{display:flex;flex-direction:column;gap:1px;background:var(--line)}
+.grp{display:flex;gap:11px;align-items:flex-start;padding:10px 14px;background:var(--surface)}
+.grp>div{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0}
+.prow{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+@media(max-width:700px){
+  .slots{grid-template-columns:repeat(2,1fr)}
+  .grp{flex-direction:column;gap:6px}
+}

@@ -139,7 +139,8 @@ def power_per_faint(effect, power):
     return float(m.group(1)) + float(m.group(2)) * FAINTED_ALLIES
 
 
-def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0):
+def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0,
+                 skill_link=False):
     """連続技の合計ダメージ。(最低回数×最低乱数, 最高回数×最高乱数) を返す。
     1発ずつ damage() を通して足すこと。各発で切り捨てが入るので、
     威力を合算してから1回で計算すると数値が合わない。"""
@@ -147,7 +148,8 @@ def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0):
         return sum(damage(power + mh['step'] * i, attack, defense,
                           stab, type_eff, extra)[idx]
                    for i in range(hits))
-    return total(mh['min'], 0), total(mh['max'], 1)
+    lo_hits = mh['max'] if skill_link else mh['min']
+    return total(lo_hits, 0), total(mh['max'], 1)
 
 
 # タイプ相性の例外。効果欄の「○○タイプに対して効果抜群になる」から拾う。
@@ -438,6 +440,11 @@ IMMUNE_EN = {'levitate': 'じめん', 'flash-fire': 'ほのお', 'water-absorb':
              'earth-eater': 'じめん'}
 HALF_JA = {'あついしぼう': ('ほのお', 'こおり'), 'たいねつ': ('ほのお',), 'すいほう': ('ほのお',)}
 HALF_EN = {'thick-fat': ('ほのお', 'こおり'), 'heatproof': ('ほのお',), 'water-bubble': ('ほのお',)}
+# 受けるダメージが増える防御特性。もふもふは接触技0.5倍だが、ほのお技だけ2倍になる。
+DOUBLE_JA = {'もふもふ': ('ほのお',)}
+DOUBLE_EN = {'fluffy': ('ほのお',)}
+# 接触技を半減する防御特性
+CONTACT_HALF = ('もふもふ', 'fluffy')
 # ability_mod が返す特性名を表示用の日本語に揃える
 ABILITY_DISPLAY = {
     'levitate': 'ふゆう', 'flash-fire': 'もらいび', 'water-absorb': 'ちょすい',
@@ -449,7 +456,8 @@ ABILITY_DISPLAY = {
 SOUND = {'ハイパーボイス', 'うたかたのアリア', 'ばくおんぱ', 'いびき', 'エコーボイス', 'りんしょう'}
 
 
-def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=False):
+def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=False,
+                is_contact=False):
     """防御側特性による倍率と、発動した特性名を返す。
     mold_breaker=True（かたやぶり）なら防御特性を全て無視する。
     ばけのかわは倍率ではなく「1回無効」なのでここでは 1.0 を返し、呼び出し側でターン数に加算する。
@@ -465,6 +473,13 @@ def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=F
         for name, types in table.items():
             if name in ab and move_type in types:
                 return 0.5, ABILITY_DISPLAY.get(name, name)
+    # もふもふ: ほのおは2倍、それ以外の接触技は0.5倍。両方に当てはまる技は無い
+    for table in (DOUBLE_JA, DOUBLE_EN):
+        for name, types in table.items():
+            if name in ab and move_type in types:
+                return 2.0, 'もふもふ'
+    if any(k in ab for k in CONTACT_HALF) and is_contact:
+        return 0.5, 'もふもふ'
     if ('マルチスケイル' in ab or 'multiscale' in ab) and hp_full:
         return 0.5, 'マルチスケイル'
     if ('ぼうおん' in ab or 'soundproof' in ab) and is_sound:
@@ -473,6 +488,9 @@ def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=F
         return 0.75, 'ハードロック'   # ※効果抜群のときのみ有効。呼び出し側で判定すること
     if 'ばけのかわ' in ab or 'disguise' in ab:
         return 1.0, 'ばけのかわ'
+    # がんじょう: HP満タンなら必ず1残る。きあいのタスキと同じ扱いで、倍率ではなく手数+1
+    if ('がんじょう' in ab or 'sturdy' in ab) and hp_full:
+        return 1.0, 'がんじょう'
     return 1.0, ''
 
 

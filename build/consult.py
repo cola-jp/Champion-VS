@@ -27,10 +27,11 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine import (MOVES, USAGE, BY_DEX_NO, NAT_JA, verdict, VERDICT_RANK, is_mega)
+from engine import (MOVES, USAGE, BY_DEX_NO, NAT_JA, verdict, VERDICT_RANK, is_mega,
+                    verdict_plus_one)
 import party as party_mod
 from generate import (build_threats, build_members, my_hit, their_hit, choose_move,
-                      ABILITY_JA)
+                      process_check, ABILITY_JA)
 from party import THREAT_RANK_LIMIT
 
 # 「落とせる」と見なす判定。乱1は乱数なので確実ではないが、選出の判断材料としては同格に扱う。
@@ -72,6 +73,9 @@ def cell(member, threat):
     back = their_hit(threat, member)
     hp = member['st'][0]
     back_v = verdict(back['lo'], back['hi'], hp) if back['move'] != '—' else '—'
+    if back.get('sturdy') and back['lo'] >= hp:
+        # 自軍のがんじょう。満タンから必ず1残るので、落とされるまでの手数が1つ増える
+        back_v = verdict_plus_one(back_v)
     return dict(
         move=primary['move'] if primary else '—',
         verdict=primary['verdict'] if primary else '—',
@@ -79,6 +83,7 @@ def cell(member, threat):
         ohko=ohko['move'] if ohko else None,
         back_move=back['move'], back_ph=back['ph'], back_verdict=back_v,
         faster=member['speed'] > threat['speed'],
+        **dict(zip(('processed', 'process_why'), process_check(member, threat))),
     )
 
 
@@ -126,26 +131,27 @@ def sec_scoreboard(members, threats, matrix):
     total = len(threats)
     out = ['## 駒ごとの成績', '',
            'その駒だけを出したと仮定して、環境の各行にどう当たるかを数えたもの。',
-           '「仕事あり」は「1発で落とせて、かつ相手からは1発で落ちない」行の数で、',
-           '対面から役割を持てる相手がどれだけ居るかの目安。', '',
-           '| 駒 | 落とせる | 1発で落ちる | 素早さ勝ち | 仕事あり |',
+           '「処理」は次のいずれかを満たすこと。',
+           '① 先手（素早さ上、または先制技）を取っており、1発で倒せる',
+           '② 後手だが、相手の最大打点を耐えて倒せる',
+           '③ 先手後手に関わらず、ターン制の打ち合いで先に相手を倒せる',
+           'こちらは最低乱数、相手は最高乱数で固定し、相手の回復技とたべのこしも差し引く。', '',
+           '| 駒 | 落とせる | 1発で落ちる | 素早さ勝ち | 処理できる |',
            '|---|---|---|---|---|']
     for i, m in enumerate(members):
         ko = sum(1 for r in matrix if r[i]['verdict'] in KO_VERDICTS)
         died = sum(1 for r in matrix if r[i]['back_verdict'] == '確1')
         fast = sum(1 for r in matrix if r[i]['faster'])
-        role = sum(1 for r in matrix
-                   if r[i]['verdict'] in KO_VERDICTS and r[i]['back_verdict'] != '確1')
+        role = sum(1 for r in matrix if r[i]['processed'])
         out.append(f"| {label(m)} | {ko}/{total} | {died}/{total} | "
                    f"{fast}/{total} | {role}/{total} |")
     return '\n'.join(out) + '\n'
 
 
+
 def answers(c):
-    """その1マスで「対面から仕事ができる」か。
-    1発で落とせて、かつ1発では落とされないか、落とされるとしても先に動ける。"""
-    return (c['verdict'] in KO_VERDICTS
-            and (c['back_verdict'] not in ('確1', '乱1') or c['faster']))
+    """その1マスで処理できるか。process_check の結果を cell が持っている。"""
+    return c['processed']
 
 
 def hard_threats(members, threats, matrix):
@@ -161,7 +167,8 @@ def hard_threats(members, threats, matrix):
 def sec_hard(members, threats, matrix):
     rows = hard_threats(members, threats, matrix)
     out = ['## 重い相手', '',
-           '「1発で落とせて、かつ相手より先に動けるか1発では落ちない」駒が1つも無い行。',
+           'パーティの6体すべてが処理できない行。',
+           '処理＝①先手で1発 ②後手でも耐えて1発 ③打ち合いで先に倒しきる、のいずれか。',
            'ここに並ぶ相手が、選出で毎回困る相手になる。', '']
     if not rows:
         out.append('該当なし。どの行にも対面から仕事ができる駒がある。')
@@ -407,15 +414,15 @@ def main():
     ap.add_argument('-o', '--out', help='書き出し先。省略すると標準出力')
     ap.add_argument('--party', help='party.txt 以外のパーティ定義ファイル')
     ap.add_argument('--top', type=int,
-                    help=f'相手を上位N位に絞る（既定は{THREAT_RANK_LIMIT}位まで全部）')
+                    help=f'相手の順位の上限（既定は{THREAT_RANK_LIMIT}位。増やすことも減らすこともできる）')
     ap.add_argument('--candidates', action='store_true',
                     help='重い相手を見られる型を環境上位から探して並べる（軸だけのときに使う）')
     args = ap.parse_args()
 
     members = load_members(args.party)
-    threats = build_threats()
-    if args.top:
-        threats = [t for t in threats if t['rank'] <= args.top]
+    # 組み立て後に絞るのではなく上限そのものを渡す。後から絞るだけだと
+    # THREAT_RANK_LIMIT を超える順位を指定しても増えない（実際に踏んだ）。
+    threats = build_threats(limit=args.top)
     matrix = build_matrix(members, threats)
 
     doc = '\n'.join([

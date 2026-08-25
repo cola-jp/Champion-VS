@@ -13,7 +13,7 @@
 
 const Engine = (() => {
   let DEX = {}, MOVES = {}, TYPES = {}, R = {};
-  let SLASH, OHKO, STATUS, DRAWBACK, BOOSTING, CONTACT, SOUND_SET;
+  let SLASH, OHKO, STATUS, DRAWBACK, BOOSTING, CONTACT, PUNCH, SOUND_SET;
 
   function load(data) {
     DEX = data.dex;
@@ -26,6 +26,7 @@ const Engine = (() => {
     DRAWBACK = new Set(R.drawbackMoves);
     BOOSTING = new Set(R.boostingMoves);
     CONTACT = new Set(R.contactMoves);
+    PUNCH = new Set(R.punchMoves);
     SOUND_SET = new Set(R.sound);
   }
 
@@ -94,7 +95,7 @@ const Engine = (() => {
 
   /* 防御側特性の倍率と、発動した特性名。かたやぶりなら全て無視する。
      テーブルは配列で持っていて、先頭から順に最初に一致したものを返す（Python と同じ）。 */
-  function abilityMod(ability, moveType, moldBreaker, hpFull, isSound) {
+  function abilityMod(ability, moveType, moldBreaker, hpFull, isSound, isContact) {
     const ab = ability || '';
     if (moldBreaker) return [1.0, ''];
     for (const table of [R.immuneJa, R.immuneEn]) {
@@ -111,6 +112,13 @@ const Engine = (() => {
         }
       }
     }
+    // もふもふ: ほのおは2倍、それ以外の接触技は0.5倍。両方に当てはまる技は無い
+    for (const table of [R.doubleJa, R.doubleEn]) {
+      for (const [name, types] of table) {
+        if (ab.includes(name) && types.includes(moveType)) return [2.0, 'もふもふ'];
+      }
+    }
+    if (isContact && R.contactHalf.some(k => ab.includes(k))) return [0.5, 'もふもふ'];
     if ((ab.includes('マルチスケイル') || ab.includes('multiscale')) && hpFull) {
       return [0.5, 'マルチスケイル'];
     }
@@ -121,6 +129,8 @@ const Engine = (() => {
       if (ab.includes(k)) return [0.75, 'ハードロック'];
     }
     if (ab.includes('ばけのかわ') || ab.includes('disguise')) return [1.0, 'ばけのかわ'];
+    // がんじょう: HP満タンなら必ず1残る。倍率ではなく手数+1として効かせる
+    if ((ab.includes('がんじょう') || ab.includes('sturdy')) && hpFull) return [1.0, 'がんじょう'];
     return [1.0, ''];
   }
 
@@ -146,7 +156,7 @@ const Engine = (() => {
   /* 連続技の合計ダメージ。1発ずつ damage() を通して足すこと。
      各発で切り捨てが入るので、威力を合算して1回で計算すると数値が合わない。
      何回当たるか（min/max）と威力の増分（step）は技データから導いた結果を使う。 */
-  function multiDamage(mh, power, attack, defense, stab, typeEff, extra) {
+  function multiDamage(mh, power, attack, defense, stab, typeEff, extra, skillLink) {
     const total = (hits, idx) => {
       let s = 0;
       for (let i = 0; i < hits; i++) {
@@ -154,7 +164,16 @@ const Engine = (() => {
       }
       return s;
     };
-    return [total(mh.min, 0), total(mh.max, 1)];
+    // スキルリンクは必ず最大回数当たるので、最低側も最大回数で数える
+    return [total(skillLink ? mh.max : mh.min, 0), total(mh.max, 1)];
+  }
+
+  /* おやこあいの合計ダメージ。2発目は威力1/4。
+     連続技と同じく1発ずつ damage() を通す（発ごとに切り捨てが入るため）。 */
+  function bondDamage(power, atk, dfn, stab, t, extra) {
+    const a = damage(power, atk, dfn, stab, t, extra);
+    const b = damage(Math.max(1.0, power / 4), atk, dfn, stab, t, extra);
+    return [a[0] + b[0], a[1] + b[1]];
   }
 
   /* ばけのかわで1回止まるぶん、必要な手数が1つ増えたときの判定。 */
@@ -199,7 +218,7 @@ const Engine = (() => {
      **自軍からの打点も相手からの被弾も必ずこれを通すこと。** 片方にだけ書くと
      もう片方が抜ける（実際にてきおうりょくが相手側にしか入っておらず、
      自軍がてきおうりょく持ちだと打点が3割以上低く出ていた）。 */
-  function offensiveMods(ability, move, m, attackerTypes, atk, protean) {
+  function offensiveMods(ability, move, m, attackerTypes, atk, protean, defenderAbility) {
     ability = ability || '';
     let moveType = m.type, power = m.power, extra = 1.0;
 
@@ -215,6 +234,15 @@ const Engine = (() => {
       if (moveType === 'ほのお') extra *= 1.5;
       else if (moveType === 'みず') extra *= 0.5;
     }
+    // ほのおのたてがみ: ほのお技の威力1.5倍（メガカエンジシ専用）
+    if (ability.includes('ほのおのたてがみ') && moveType === 'ほのお') extra *= 1.5;
+    // すいほう: 自分のみず技2倍。受けるほのお半減は abilityMod 側
+    if (ability.includes('すいほう') && moveType === 'みず') extra *= 2.0;
+    // フェアリーオーラ: 場に居る間、攻撃側・防御側どちらが持っていてもフェアリー技が1.33倍
+    if (moveType === 'フェアリー'
+        && (ability.includes('フェアリーオーラ')
+            || (defenderAbility || '').includes('フェアリーオーラ'))) extra *= 1.33;
+    if (ability.includes('てつのこぶし') && PUNCH.has(move)) extra *= 1.2;
     if (ability.includes('テクニシャン') && power <= 60) power *= 1.5;
     if ((ability.includes('ちからもち') || ability.includes('ヨガパワー')) && m.cat === '物理') atk *= 2;
     if (ability.includes('きれあじ') && SLASH.has(move)) extra *= 1.5;
@@ -224,7 +252,13 @@ const Engine = (() => {
     if (protean) stab = 1.5;
     else if (ability.includes('てきおうりょく') && attackerTypes.includes(moveType)) stab = 2.0;
     else stab = attackerTypes.includes(moveType) ? 1.5 : 1.0;
-    return [moveType, power, atk, extra, stab];
+    const flags = {
+      // おやこあい: 1ターンに2回攻撃。2発目は威力1/4
+      parentalBond: ability.includes('おやこあい') && m.cat !== '変化' && !m.multi,
+      skillLink: ability.includes('スキルリンク'),
+      accMult: ability.includes('ふくがん') ? 1.3 : 1.0,
+    };
+    return [moveType, power, atk, extra, stab, flags];
   }
 
   function myHit(member, move, threat, hpEff) {
@@ -237,15 +271,18 @@ const Engine = (() => {
     // 自軍側は発動している前提で計算する（相手側は発動・未発動の2行に分けている）。
     const protean = ['へんげんじざい', 'リベロ'].some(k => (member.ability || '').includes(k));
     // eslint-disable-next-line prefer-const
-    let [moveType, power, atk, extra, stab] =
-      offensiveMods(member.ability, move, m, member.types, atk0, protean);
+    let [moveType, power, atk, extra, stab, flags] =
+      offensiveMods(member.ability, move, m, member.types, atk0, protean, threat.ability);
     const t = moveEff(move, moveType, threat.types[0], threat.types[1]);
     [atk, extra] = itemMods(member.item, m, moveType, t, atk, extra);
     let [am, abName] = abilityMod(threat.ability, moveType, member.mold_breaker,
-                                  threat.hp_full !== false, SOUND_SET.has(move));
+                                  threat.hp_full !== false, SOUND_SET.has(move),
+                                  CONTACT.has(move));
     if (abName === 'ハードロック' && t < 2) am = 1.0;
     const disguise = (abName === 'ばけのかわ');
     if (disguise) am = 1.0;   // 倍率ではなく1回無効なので、ダメージは等倍のまま
+    const sturdy = (abName === 'がんじょう');
+    if (sturdy) am = 1.0;     // がんじょうも倍率ではない。手数を1つ増やす形で効かせる
 
     const dfn = m.cat === '物理' ? threat.st[2] : threat.st[4];
     const hp = hpEff === undefined || hpEff === null ? threat.st[0] : hpEff;
@@ -262,11 +299,15 @@ const Engine = (() => {
     // 特性の倍率は「その他補正」に入れる。相性と掛け合わせてから1回で切り捨てると、
     // 段階を分けた場合と結果がずれる（ハードロックの0.75倍で実際にずれる）。
     const [lo, hi] = m.multi
-      ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am)
-      : damage(power, atk, dfn, stab, t, extra * am);
+      ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink)
+      : (flags.parentalBond
+        ? bondDamage(power, atk, dfn, stab, t, extra * am)
+        : damage(power, atk, dfn, stab, t, extra * am));
 
     let v = verdict(lo, hi, hp);
     if (disguise) v = verdictPlusOne(v);   // 皮で1回止まるぶん手数が増える
+    // がんじょうは満タンから必ず1残る。確1のときだけ手数が1つ増える
+    if (sturdy && lo >= hp) v = verdictPlusOne(v);
 
     const res = {
       move, lo, hi,
@@ -275,9 +316,12 @@ const Engine = (() => {
     };
     if (disguise) res.disguise = true;
     if (m.multi) res.hits = m.multi.label;
+    if (flags.parentalBond) res.hits = '2回(おやこあい)';
+    if (sturdy) res.sturdy = true;
     if (m.pri) res.pri = m.pri;
     if (am !== 1.0 && abName) { res.ab_name = abName; res.ab_mult = am; }
-    if (m.acc && m.acc < 100) res.acc = m.acc;
+    const acc = m.acc && Math.min(100.0, m.acc * flags.accMult);
+    if (acc && acc < 100) res.acc = pyRound(acc);
     return res;
   }
 
@@ -370,6 +414,7 @@ const Engine = (() => {
   /* theirHit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。 */
   function theirHitScan(threat, member, ability, mold, defenderAbilityOn) {
     const main = [], rare = [];
+    let defenderSturdy = false;
     for (const entry of threat.moves.slice(0, 8)) {
       const mv = entry.name, usage = entry.usage;
       const m = MOVES[mv];
@@ -377,39 +422,49 @@ const Engine = (() => {
 
       const atk0 = m.cat === '物理' ? threat.st[1] : threat.st[3];
       // eslint-disable-next-line prefer-const
-      let [moveType, power, atk, extra, stab] =
-        offensiveMods(ability, mv, m, threat.types, atk0, threat.protean);
+      let [moveType, power, atk, extra, stab, flags] =
+        offensiveMods(ability, mv, m, threat.types, atk0, threat.protean,
+                      defenderAbilityOn ? member.ability : '');
 
       const t = moveEff(mv, moveType, member.types[0], member.types[1]);
       [atk, extra] = itemMods(threat.item, m, moveType, t, atk, extra);
 
       // 自軍の防御特性。あついしぼう・ふゆう・マルチスケイルなどが効く。
-      // ばけのかわは倍率ではないのでここでは触らず、呼び出し側で扱う。
+      // ばけのかわ・がんじょうは倍率ではないのでここでは触らず、呼び出し側で扱う。
       let am = 1.0;
       if (defenderAbilityOn) {
         let abName;
-        [am, abName] = abilityMod(member.ability, moveType, mold, true, SOUND_SET.has(mv));
+        [am, abName] = abilityMod(member.ability, moveType, mold, true,
+                                  SOUND_SET.has(mv), CONTACT.has(mv));
         if (abName === 'ハードロック' && t < 2) am = 1.0;
-        if (abName === 'ばけのかわ') am = 1.0;
+        if (abName === 'ばけのかわ' || abName === 'がんじょう') {
+          am = 1.0;
+          if (abName === 'がんじょう') defenderSturdy = true;
+        }
       }
 
       if (t * am === 0) continue;   // 相性か特性で通らない技。damage() は最低1を返すので落とす
       const dfn = m.cat === '物理' ? member.st[2] : member.st[4];
       // 特性の倍率は myHit と同じく「その他補正」に入れる（相性とは段階を分ける）
       const [lo, hi] = m.multi
-        ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am)
-        : damage(power, atk, dfn, stab, t, extra * am);
+        ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink)
+        : (flags.parentalBond
+          ? bondDamage(power, atk, dfn, stab, t, extra * am)
+          : damage(power, atk, dfn, stab, t, extra * am));
       const cand = {
         move: mv, lo, hi, usage,
         pl: pyRound(lo * 100 / member.st[0]),
         ph: pyRound(hi * 100 / member.st[0]),
       };
       if (m.multi) cand.hits = m.multi.label;
+      if (flags.parentalBond) cand.hits = '2回(おやこあい)';
       if (m.pri) cand.pri = m.pri;
       (usage > R.rareMoveThreshold ? main : rare).push(cand);
     }
     const pool = main.length ? main : rare;
     if (!pool.length) return { move: '—', lo: 0, hi: 0, pl: 0, ph: 0 };
+    // がんじょう: 満タンから受けるぶんは必ず1残る。呼び出し側が手数+1にする
+    if (defenderSturdy) for (const c of pool) c.sturdy = true;
     let best = pool.reduce((a, b) => (b.hi > a.hi ? b : a));
     // 先制技で落とされるなら、素早さで勝っていても行動前に倒される。
     // 他にもっとダメージの大きい技があっても、こちらを主表示にする。
@@ -422,6 +477,112 @@ const Engine = (() => {
       if (topRare.hi > best.hi) best = Object.assign({}, best, { rare: topRare });
     }
     return best;
+  }
+
+  // ------------------------------------------------------------ 処理判定
+  /* 「処理できる」の定義:
+       ① 先手（素早さ上、または先制技）を取っており、1発で倒せる
+       ② 後手だが、相手の最大打点を耐えて倒せる
+       ③ 先手後手に関わらず、ターン制の打ち合いで先に相手を倒せる
+     ①②は③の特殊ケースなので、実装は③のレースに一本化してある。
+     乱数はこちらに不利な側で固定する（自分は最低乱数、相手は最高乱数）。
+     そうしないと「高乱数を引けば勝てる」相手まで処理できる扱いになってしまう。
+
+     build/generate.py の process_check からの移植。**片方だけ直さないこと。**
+     appdata/golden.json の processed 欄で全件突き合わせている。 */
+
+  /* [回復技1回ぶんの回復量, たべのこしの毎ターン回復量]。
+     回復技はそのターン攻撃できない。たべのこしはターンを消費しない。 */
+  function healParts(mon, movesUse) {
+    const hp = mon.st[0];
+    const recovery = new Set(R.recoveryMoves);
+    const names = movesUse
+      ? movesUse.filter(e => e.usage > R.rareMoveThreshold).map(e => e.name)
+      : (mon.moves || []);
+    const moveHeal = names.some(n => recovery.has(n)) ? Math.floor(hp / 2) : 0;
+    const passive = (mon.item || '').includes('たべのこし') ? Math.floor(hp / 16) : 0;
+    return [moveHeal, passive];
+  }
+
+  /* 1発目 firstDmg、2発目以降 restDmg で倒すのに要するターン数。倒せないなら null。
+     マルチスケイルのように満タンのときだけ効く特性があるので、初撃を分けている。 */
+  function turnsToKo(hp, firstDmg, restDmg, extraTurns) {
+    extraTurns = extraTurns || 0;
+    const left = hp - firstDmg;
+    if (left <= 0) return 1 + extraTurns;
+    if (restDmg <= 0) return null;
+    const n = 1 + Math.ceil(left / restDmg) + extraTurns;
+    return n <= R.maxTurns ? n : null;
+  }
+
+  /* 回復技を挟みながら生き残れるか。n ターンに1回だけ回復して残り n-1 ターン攻撃できる、
+     その n を返す。支えきれないなら null、そもそも削られないなら 0。 */
+  function sustainCycle(hpHeal, passive, incoming) {
+    const net = incoming - passive;
+    if (net <= 0) return 0;              // たべのこしだけで足りる
+    if (hpHeal <= 0) return null;
+    const n = Math.floor(hpHeal / net) + 1;
+    return n >= 2 ? n : null;            // n=1 は「毎ターン回復＝攻撃できない」
+  }
+
+  /* この駒がこの相手を処理できるか。{ok, why, turns, move} を返す。
+
+     回復技はそのターン攻撃できない。これを踏まえると相手の最適行動は二択になる:
+       ・回復量 >= こちらの打点 なら、毎ターン回復すれば永久に落ちない → 処理不可
+       ・回復量 < こちらの打点 なら、回復するほど攻撃ターンを失って損 → 一度も回復しない */
+  function processCheck(member, threat) {
+    const back = theirHit(threat, member);
+    const theirDmg = back.hi;                    // 相手は最高乱数
+    const theirPri = back.pri || 0;
+    const myHp = member.st[0], theirHp = threat.st[0];
+    const [myHeal, myPass] = healParts(member);
+    const [theirHeal, theirPass] = healParts(threat, threat.moves);
+
+    // 2発目以降は相手が満タンではない。マルチスケイル・がんじょうは初撃にしか効かない
+    const threatHurt = Object.assign({}, threat, { hp_full: false });
+
+    let best = null;
+    for (const mv of member.moves) {
+      const h = myHit(member, mv, threat);
+      if (!h || h.ohko || !h.hi) continue;       // 一撃必殺は運任せなので数えない
+      const h2 = myHit(member, mv, threatHurt) || h;
+      const firstDmg = h.lo;                     // 自分は最低乱数
+      const restDmg = h2.lo;
+      // 相手が回復技を撃ち続けて耐えきれるなら、この技では永久に落とせない
+      if (theirHeal && theirHeal + theirPass >= firstDmg) continue;
+      const extra = (h.sturdy || h.disguise) ? 1 : 0;
+      let myTurns = turnsToKo(theirHp, firstDmg - theirPass, restDmg - theirPass, extra);
+      if (myTurns === null) continue;
+      if (DRAWBACK.has(mv)) myTurns = myTurns * 2 - 1;   // 反動で次のターン動けない
+
+      const cycle = sustainCycle(myHeal, myPass, theirDmg);
+      let theirTurns;
+      if (cycle === 0) {
+        theirTurns = null;                       // そもそも削られない
+      } else if (cycle) {
+        theirTurns = null;
+        myTurns = Math.ceil(myTurns * cycle / (cycle - 1));
+        if (myTurns > R.maxTurns) continue;
+      } else {
+        theirTurns = turnsToKo(myHp, theirDmg - myPass, theirDmg - myPass);
+      }
+      const pri = h.pri || 0;
+      const first = pri > theirPri || (pri === theirPri && member.speed > threat.speed);
+      let ok;
+      if (theirTurns === null) ok = true;
+      else if (first) ok = myTurns <= theirTurns;
+      else ok = myTurns < theirTurns;
+      if (ok && (best === null || myTurns < best.turns)) {
+        best = {
+          turns: myTurns, move: mv,
+          why: (first && myTurns === 1) ? '先手1発'
+            : myTurns === 1 ? '後手だが耐えて1発'
+              : `打ち合い${myTurns}ターン`,
+        };
+      }
+    }
+    if (best) return { ok: true, move: best.move, why: best.why, turns: best.turns };
+    return { ok: false, move: null, why: '', turns: null };
   }
 
   // ------------------------------------------------------------ パーティの解析
@@ -644,6 +805,7 @@ const Engine = (() => {
         ['backDisguise', !!back.disguise, row.backDisguise],
         ['primaryDisguise', !!primary.disguise, row.primaryDisguise],
         ['primaryHits', primary.hits === undefined ? null : primary.hits, row.primaryHits],
+        ['processed', processCheck(m, t).ok, row.processed],
         ['boostMove', boosted ? boosted.move : null, row.boostMove],
         ['boostPh', boosted ? boosted.ph : null, row.boostPh],
         ['boostStages', boosted ? boosted.stages : null, row.boostStages],
@@ -661,7 +823,7 @@ const Engine = (() => {
 
   return {
     load, stats, statValue, eff, abilityMod, damage, verdict, srDamage,
-    myHit, boostedHit, theirHit, chooseMove,
+    myHit, boostedHit, theirHit, chooseMove, processCheck,
     parseParty, formatParty, selfTest, pyRound, PartyError, pointsFromStats,
     get dex() { return DEX; },
     get moves() { return MOVES; },

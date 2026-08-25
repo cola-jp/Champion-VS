@@ -23,7 +23,7 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     stats, eff, move_eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
                     self_boost, rank_multiplier, multi_damage, verdict_plus_one)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
-                   CONTACT_MOVES, NON_CONTACT_MOVES,
+                   CONTACT_MOVES, NON_CONTACT_MOVES, PUNCH_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
 
 STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
@@ -53,6 +53,24 @@ ABILITY_JA = {
     'snow-warning': 'ゆきふらし', 'stamina': 'じきゅうりょく', 'stance-change': 'バトルスイッチ',
     'supreme-overlord': 'そうだいしょう', 'torrent': 'げきりゅう', 'toxic-debris': 'どくげしょう',
     'unaware': 'てんねん', 'weak-armor': 'くだけるよろい',
+    # --- 追加分 ---
+    'huge-power': 'ちからもち', 'pure-power': 'ヨガパワー', 'technician': 'テクニシャン',
+    'thick-fat': 'あついしぼう', 'heatproof': 'たいねつ', 'water-bubble': 'すいほう',
+    'flash-fire': 'もらいび', 'water-absorb': 'ちょすい', 'earth-eater': 'どしょく',
+    'pixilate': 'フェアリースキン', 'refrigerate': 'フリーズスキン',
+    'aerilate': 'スカイスキン', 'galvanize': 'エレキスキン',
+    'iron-fist': 'てつのこぶし', 'fluffy': 'もふもふ', 'sturdy': 'がんじょう',
+    'skill-link': 'スキルリンク', 'compound-eyes': 'ふくがん',
+    'parental-bond': 'おやこあい', 'fairy-aura': 'フェアリーオーラ',
+    'contrary': 'あまのじゃく', 'competitive': 'かちき', 'defiant': 'まけんき',
+    'speed-boost': 'かそく', 'unburden': 'かるわざ', 'gooey': 'ぬめぬめ',
+    'intimidate': 'いかく', 'regenerator': 'さいせいりょく', 'effect-spore': 'ほうし',
+    'cursed-body': 'のろわれボディ', 'illusion': 'イリュージョン', 'imposter': 'かわりもの',
+    'magic-bounce': 'マジックミラー', 'shell-armor': 'シェルアーマー',
+    'bulletproof': 'ぼうだん', 'lightning-rod': 'ひらいしん',
+    'mega-launcher': 'メガランチャー', 'healer': 'いやしのこころ',
+    'trace': 'トレース', 'no-guard': 'ノーガード', 'punk-rock': 'パンクロック',
+    'libero': 'リベロ', 'sheer-force': 'ちからずく',
 }
 ITEM_JA = {
     'black-glasses': 'くろいメガネ', 'choice-scarf': 'こだわりスカーフ', 'damp-rock': 'しめったいわ',
@@ -65,6 +83,18 @@ ITEM_JA = {
     'metagrossite': 'メタグロスナイト', 'raichunite-y': 'ライチュウナイトY', 'scizorite': 'ハッサムナイト',
     'staraptorite': 'ムクホークナイト', 'starmienite': 'スターミーナイト', 'swampertite': 'ラグラージナイト',
     'venusaurite': 'フシギバナイト',
+    # 上位100位まで広げて出てきたメガストーン。ゲーム内の表記を確認できていないものは
+    # 「通常形態の名前＋ナイト」という既存の命名にならって置いてある
+    # （ゲンガナイト・フシギバナイトのように縮まる例があるので、実物と違ったら直すこと）。
+    'banettite': 'ジュペッタナイト', 'blastoisinite': 'カメックスナイト',
+    'chandelurite': 'シャンデラナイト', 'chesnaughtite': 'ブリガロンナイト',
+    'dragalgite': 'ドラミドロナイト', 'floettite': 'フラエッテナイト',
+    'froslassite': 'ユキメノコナイト', 'gardevoirite': 'サーナイトナイト',
+    'kangaskhanite': 'ガルーラナイト', 'pyroarite': 'カエンジシナイト',
+    'sceptilite': 'ジュカインナイト', 'scolipedite': 'ペンドラーナイト',
+    'scovillainite': 'スコヴィランナイト', 'scraftite': 'ズルズキンナイト',
+    'skarmorite': 'エアームドナイト', 'slowbronite': 'ヤドランナイト',
+    'tyranitarite': 'バンギラスナイト', 'victreebelite': 'ウツボットナイト',
     # ダメージに関わる持ち物（ITEM_DAMAGE で補正を掛ける）
     'choice-band': 'こだわりハチマキ', 'choice-specs': 'こだわりメガネ',
     'expert-belt': 'たつじんのおび', 'mystic-water': 'しんぴのしずく',
@@ -91,6 +121,28 @@ ABILITY_HANDLING = {
 
     # --- 打点にも被弾にも影響しない（変化技・状態異常・素早さ・PPなど） ---
     'あまのじゃく': '影響なし: 能力変化の向きのみ',
+    'かちき': '影響なし: 能力を下げられた後のランクのみ',
+    'まけんき': '影響なし: 能力を下げられた後のランクのみ',
+    'かるわざ': '影響なし: 持ち物消費後の素早さのみ',
+    'ぬめぬめ': '影響なし: 接触時の素早さランクのみ',
+    'いかく': '未反映: 登場時に相手のA-1。ランク補正を計算に入れていないので外している',
+    'さいせいりょく': '影響なし: 交代時の回復のみ',
+    'ほうし': '影響なし: 接触時の状態異常。状態異常は未計算',
+    'のろわれボディ': '影響なし: PPのみ',
+    'イリュージョン': '影響なし: 見た目のみ。実数値は本人のもの',
+    'かわりもの': '未反映: 相手にへんしんするので実数値が定まらない',
+    'シェルアーマー': '影響なし: 急所無効のみ。急所は計算に入れていない',
+    'ノーガード': '影響なし: 命中のみ',
+    'いやしのこころ': '影響なし: ダブル用',
+    'トレース': '未反映: 相手の特性をコピーするので事前に定まらない',
+    'ぼうだん': '未反映: 弾技の無効化。対象技の一覧を持っていない',
+    'ひらいしん': '影響なし: ダブル用の吸い寄せ。でんき無効は IMMUNE 側で反映済み',
+    'メガランチャー': '未反映: 波動技1.5倍。対象技の一覧を持っていない',
+    'とびだすなかみ': '未反映: 瀕死時に受けたダメージ分を反射。対面表の与ダメージには出ない',
+    'とびだすハバネロ': '未反映: 被弾時に相手をやけど。状態異常は未計算',
+    'うなぎのぼり': '未反映: ふゆう＋ビーストブースト。ふゆう部分は IMMUNE 側で反映済み',
+    'パンクロック': '未反映: 音技1.3倍／受ける音技0.5倍',
+    'ちからずく': '未反映: 追加効果を捨てて1.3倍',
     'あめふらし': '影響なし: 天候は未計算',
     'ひでり': '影響なし: 天候は未計算',
     'すなおこし': '影響なし: 天候は未計算',
@@ -123,6 +175,25 @@ ABILITY_HANDLING = {
                     'ほのお技1.5倍・みず技0.5倍。ソーラービームは溜めなしなので威力120のまま',
     'へんげんじざい': '反映済み: 発動・未発動で行を2つに分ける',
     'リベロ': '反映済み: へんげんじざいと同じ扱い',
+    'てつのこぶし': '反映済み: パンチ技1.2倍。対象は party.PUNCH_MOVES',
+    'ほのおのたてがみ': '反映済み: ほのお技1.5倍',
+    'すいほう': '反映済み: 自分のみず技2倍／受けるほのお0.5倍',
+    'フェアリースキン': '反映済み: ノーマル技がフェアリーになり1.2倍。SKIN_ABILITIES',
+    'スカイスキン': '反映済み: フェアリースキンと同じ枠',
+    'フリーズスキン': '反映済み: フェアリースキンと同じ枠',
+    'エレキスキン': '反映済み: フェアリースキンと同じ枠',
+    'おやこあい': '反映済み: 2回攻撃。2発目は威力1/4。_bond_damage()',
+    'フェアリーオーラ': '反映済み: 攻守どちらが持っていてもフェアリー技1.33倍',
+    'スキルリンク': '反映済み: 連続技の最低回数を最大回数に固定',
+    'ふくがん': '反映済み: 命中1.3倍（表示のみ。ダメージは変わらない）',
+
+    # --- 防御特性（ability_mod で反映済み） ---
+    'たいねつ': '反映済み: ほのおを0.5倍',
+    'もらいび': '反映済み: ほのお無効',
+    'ちょすい': '反映済み: みず無効',
+    'どしょく': '反映済み: じめん無効',
+    'もふもふ': '反映済み: 接触技0.5倍／ほのお2倍。接触判定は party.CONTACT_MOVES',
+    'がんじょう': '反映済み: 満タンからの確1を許さない（手数+1）',
 
     # --- 未反映（影響はあるが入れていない） ---
     'きもったま': '未反映: ノーマル・かくとうがゴーストに通る。今のパーティにゴーストが居ない',
@@ -278,10 +349,11 @@ def check_abilities(rows):
             print(f'  {mv} — 該当: {"、".join(sorted(names))}')
 
 
-def build_threats():
+def build_threats(limit=None):
     """脅威リストを作る。1体につき、型が複数あれば2行、マルチスケイル持ちはさらに2行に分ける。
     ポケモン名・リージョンフォーム・技データの不整合は黙って除外せず、集めてビルドを止める
     （表から特定のポケモンが消えたことに気づけなくなるため）。"""
+    limit = THREAT_RANK_LIMIT if limit is None else limit
     unresolved_pokemon = []
     unresolved_region = []
     for entry in sorted(USAGE, key=lambda x: x['pick_rank']):
@@ -297,7 +369,7 @@ def build_threats():
     missing_moves = set()
     translation_warnings = set()
     for entry in sorted(USAGE, key=lambda x: x['pick_rank']):
-        if entry['pick_rank'] > THREAT_RANK_LIMIT:
+        if entry['pick_rank'] > limit:
             continue
         try:
             name = pick_form(entry)
@@ -418,10 +490,17 @@ ITEM_DAMAGE = {
 # ダメージに影響しない持ち物。分類済みであることを示すためだけに並べてある。
 # メガストーンは「ナイト」で終わる名前で判定するので個別には書かない。
 ITEM_NO_DAMAGE = {
+    # きあいのタスキ: がんじょうと効果は同じだが、あえて反映していない。
+    # 同じポケモンでもタスキ型とそうでない型が混在し、型ごとの持ち物は使用率データの
+    # 最頻値しか見ていないため、一律に効かせると外れる場面のほうが多くなる。
+    # 実戦で相手のタスキ有無を読むのはプレイヤー側の仕事として残す。
     '', '—', 'きあいのタスキ', 'たべのこし', 'オボンのみ', 'こだわりスカーフ',
     'ひかりのねんど', 'しめったいわ', 'ラムのみ', 'あついいわ', 'さらさらいわ',
     'しろいハーブ', 'メンタルハーブ', 'こうかくレンズ', 'ピントレンズ',
     'せんせいのツメ', 'ひかりのこな', 'でんきだま',
+    # メガストーンは「ナイト」で終わる名前で除外されるので個別には並べない
+    # （ITEM_JA に日本語名を入れてあるものはそちらで拾われる）。
+    'shuca-berry',   # ヤスウのみ。じめん技を1回半減するが、条件付きなので入れない
 }
 
 
@@ -444,7 +523,8 @@ def item_mods(item, m, move_type, type_eff, atk, extra):
     return atk, extra
 
 
-def offensive_mods(ability, move, m, attacker_types, atk, protean=False):
+def offensive_mods(ability, move, m, attacker_types, atk, protean=False,
+                   defender_ability=''):
     """攻撃側の特性による補正をまとめて返す。(技タイプ, 威力, 攻撃, その他補正, 一致補正)
 
     **自軍からの打点も相手からの被弾も、必ずこの関数を通すこと。**
@@ -471,6 +551,18 @@ def offensive_mods(ability, move, m, attacker_types, atk, protean=False):
         elif move_type == 'みず':
             extra *= 0.5
 
+    # ほのおのたてがみ: ほのお技の威力1.5倍（メガカエンジシ専用）
+    if 'ほのおのたてがみ' in ability and move_type == 'ほのお':
+        extra *= 1.5
+    # すいほう: 自分のみず技2倍。受けるほのお半減は ability_mod 側
+    if 'すいほう' in ability and move_type == 'みず':
+        extra *= 2.0
+    # フェアリーオーラ: 場に居る間、攻撃側・防御側どちらが持っていてもフェアリー技が1.33倍
+    if move_type == 'フェアリー' and ('フェアリーオーラ' in ability
+                                  or 'フェアリーオーラ' in (defender_ability or '')):
+        extra *= 1.33
+    if 'てつのこぶし' in ability and move in PUNCH_MOVES:
+        extra *= 1.2
     if 'テクニシャン' in ability and power <= 60:
         power *= 1.5
     if ('ちからもち' in ability or 'ヨガパワー' in ability) and m['cat'] == '物理':
@@ -486,7 +578,21 @@ def offensive_mods(ability, move, m, attacker_types, atk, protean=False):
         stab = 2.0
     else:
         stab = 1.5 if move_type in attacker_types else 1.0
-    return move_type, power, atk, extra, stab
+    flags = dict(
+        # おやこあい: 1ターンに2回攻撃。2発目は威力1/4。連続技扱いにして damage を2回通す
+        parental_bond=('おやこあい' in ability and m['cat'] != '変化' and not m['multi']),
+        skill_link=('スキルリンク' in ability),
+        acc_mult=(1.3 if 'ふくがん' in ability else 1.0),
+    )
+    return move_type, power, atk, extra, stab, flags
+
+
+def _bond_damage(power, atk, dfn, stab, t, extra):
+    """おやこあいの合計ダメージ。2発目は威力1/4。
+    連続技と同じく1発ずつ damage() を通す（発ごとに切り捨てが入るため）。"""
+    a = damage(power, atk, dfn, stab, t, extra)
+    b = damage(max(1.0, power / 4), atk, dfn, stab, t, extra)
+    return a[0] + b[0], a[1] + b[1]
 
 
 def my_hit(member, move, threat, hp_eff=None):
@@ -502,18 +608,23 @@ def my_hit(member, move, threat, hp_eff=None):
     # へんげんじざいは場に出て最初の技で発動する。この表は対面した瞬間を見るものなので、
     # 自軍側は発動している前提で計算する（相手側は発動・未発動の2行に分けている）。
     protean = any(k in (member.get('ability') or '') for k in ('へんげんじざい', 'リベロ'))
-    move_type, power, atk, extra, stab = offensive_mods(
-        member.get('ability'), move, m, member['types'], atk0, protean)
+    move_type, power, atk, extra, stab, flags = offensive_mods(
+        member.get('ability'), move, m, member['types'], atk0, protean,
+        defender_ability=threat.get('ability'))
     t = move_eff(move, move_type, *threat['types'])
     atk, extra = item_mods(member.get('item'), m, move_type, t, atk, extra)
     am, ab_name = ability_mod(threat['ability'], move_type, member['mold_breaker'],
                               hp_full=(threat['hp_full'] is not False),
-                              is_sound=(move in SOUND))
+                              is_sound=(move in SOUND),
+                              is_contact=(move in CONTACT_MOVES))
     if ab_name == 'ハードロック' and t < 2:
         am = 1.0
     disguise = (ab_name == 'ばけのかわ')
     if disguise:
         am = 1.0        # 倍率ではなく1回無効なので、ダメージは等倍のまま
+    sturdy = (ab_name == 'がんじょう')
+    if sturdy:
+        am = 1.0        # がんじょうも倍率ではない。手数を1つ増やす形で効かせる
     dfn = threat['st'][2] if m['cat'] == '物理' else threat['st'][4]
     hp = threat['st'][0] if hp_eff is None else hp_eff
 
@@ -527,7 +638,10 @@ def my_hit(member, move, threat, hp_eff=None):
     # 特性の倍率は「その他補正」に入れる。相性と掛け合わせてから1回で切り捨てると、
     # 段階を分けた場合と結果がずれる（ハードロックの0.75倍で実際にずれる）。
     if m['multi']:
-        lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am)
+        lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am,
+                              skill_link=flags['skill_link'])
+    elif flags['parental_bond']:
+        lo, hi = _bond_damage(power, atk, dfn, stab, t, extra * am)
     else:
         lo, hi = damage(power, atk, dfn, stab, t, extra * am)
     # 表示用は「タイプ相性」と「防御特性による補正」を分ける。
@@ -536,19 +650,27 @@ def my_hit(member, move, threat, hp_eff=None):
     if disguise:
         # 皮で1回止まるぶん、倒すのに必要な手数が1つ増える
         v = verdict_plus_one(v)
+    if sturdy and lo >= hp:
+        # がんじょうは満タンから必ず1残る。確1のときだけ手数が1つ増える
+        v = verdict_plus_one(v)
     result = dict(move=move, lo=lo, hi=hi, pl=round(lo * 100 / hp), ph=round(hi * 100 / hp),
                   eff=t, verdict=v)
     if disguise:
         result['disguise'] = True
     if m['multi']:
         result['hits'] = m['multi']['label']
+    if flags['parental_bond']:
+        result['hits'] = '2回(おやこあい)'
+    if sturdy:
+        result['sturdy'] = True
     if m['pri']:
         result['pri'] = m['pri']
     if am != 1.0 and ab_name:
         result['ab_name'] = ab_name
         result['ab_mult'] = am
-    if m['acc'] and m['acc'] < 100:
-        result['acc'] = m['acc']
+    acc = m['acc'] and min(100.0, m['acc'] * flags['acc_mult'])
+    if acc and acc < 100:
+        result['acc'] = round(acc)
     return result
 
 
@@ -616,13 +738,15 @@ def their_hit(threat, member):
 def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
     """their_hit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。"""
     main, rare = [], []
+    defender_sturdy = False
     for mv, usage in threat['moves_use'][:8]:
         m = MOVES.get(mv)
         if not m or not m['power']:
             continue
         atk0 = threat['st'][1] if m['cat'] == '物理' else threat['st'][3]
-        move_type, power, atk, extra, stab = offensive_mods(
-            ability, mv, m, threat['types'], atk0, threat['protean'])
+        move_type, power, atk, extra, stab, flags = offensive_mods(
+            ability, mv, m, threat['types'], atk0, threat['protean'],
+            defender_ability=(member.get('ability') if defender_ability_on else ''))
 
         t = move_eff(mv, move_type, *member['types'])
         atk, extra = item_mods(threat['item'], m, move_type, t, atk, extra)
@@ -632,11 +756,14 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         am = 1.0
         if defender_ability_on:
             am, ab_name = ability_mod(member.get('ability'), move_type, mold,
-                                      hp_full=True, is_sound=(mv in SOUND))
+                                      hp_full=True, is_sound=(mv in SOUND),
+                                      is_contact=(mv in CONTACT_MOVES))
             if ab_name == 'ハードロック' and t < 2:
                 am = 1.0
-            if ab_name == 'ばけのかわ':
+            if ab_name in ('ばけのかわ', 'がんじょう'):
                 am = 1.0
+                if ab_name == 'がんじょう':
+                    defender_sturdy = True
 
         if t * am == 0:
             continue    # タイプ相性か特性で通らない技。damage() は最低1を返すので、
@@ -644,7 +771,10 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         dfn = member['st'][2] if m['cat'] == '物理' else member['st'][4]
         # 特性の倍率は my_hit と同じく「その他補正」に入れる（相性とは段階を分ける）
         if m['multi']:
-            lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am)
+            lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am,
+                                  skill_link=flags['skill_link'])
+        elif flags['parental_bond']:
+            lo, hi = _bond_damage(power, atk, dfn, stab, t, extra * am)
         else:
             lo, hi = damage(power, atk, dfn, stab, t, extra * am)
         cand = dict(move=mv, lo=lo, hi=hi, usage=usage,
@@ -652,6 +782,8 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
                     ph=round(hi * 100 / member['st'][0]))
         if m['multi']:
             cand['hits'] = m['multi']['label']
+        if flags['parental_bond']:
+            cand['hits'] = '2回(おやこあい)'
         if m['pri']:
             cand['pri'] = m['pri']
         (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)
@@ -661,6 +793,10 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
     pool = main or rare
     if not pool:
         return dict(move='—', lo=0, hi=0, pl=0, ph=0)
+    if defender_sturdy:
+        # がんじょう: 満タンから受けるぶんは必ず1残る。呼び出し側が手数+1にする
+        for c in pool:
+            c['sturdy'] = True
     best = max(pool, key=lambda x: x['hi'])
     # 先制技で落とされるなら、素早さで勝っていても行動前に倒される。
     # 他にもっとダメージの大きい技があっても、こちらを主表示にする。
@@ -673,6 +809,127 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         if top_rare['hi'] > best['hi']:
             best = dict(best, rare=top_rare)
     return best
+
+
+# ---------------------------------------------------------------- 処理判定
+# 「処理できる」の定義（ユーザー指定）:
+#   ① 先手（素早さ上、または先制技）を取っており、1発で倒せる
+#   ② 後手だが、相手の最大打点を耐えて倒せる
+#   ③ 先手後手に関わらず、ターン制の打ち合いで先に相手を倒せる
+# ①②は③の特殊ケースなので、実装は③のレースに一本化してある。
+# 乱数はこちらに不利な側で固定する（自分は最低乱数、相手は最高乱数）。
+# そうしないと「高乱数を引けば勝てる」相手まで処理できる扱いになってしまう。
+
+RECOVERY_MOVES = {'なまける', 'じこさいせい', 'はねやすめ', 'こうごうせい',
+                  'つきのひかり', 'あさのひざし', 'ミルクのみ', 'タマゴうみ',
+                  'ねむる', 'ねがいごと'}
+MAX_TURNS = 12
+
+
+def _heal_parts(mon, moves_use=None):
+    """(回復技1回ぶんの回復量, たべのこしの毎ターン回復量) を返す。
+    回復技はそのターン攻撃できない。たべのこしはターンを消費しない。"""
+    hp = mon['st'][0]
+    if moves_use is None:
+        names = set(mon.get('moves') or [])
+    else:
+        names = {mv for mv, u in moves_use if u > RARE_MOVE_THRESHOLD}
+    move_heal = hp // 2 if (names & RECOVERY_MOVES) else 0
+    passive = hp // 16 if 'たべのこし' in (mon.get('item') or '') else 0
+    return move_heal, passive
+
+
+def _turns_to_ko(hp, first_dmg, rest_dmg, extra_turns=0):
+    """1発目 first_dmg、2発目以降 rest_dmg で倒すのに要するターン数。倒せないなら None。
+    マルチスケイルのように満タンのときだけ効く特性があるので、初撃を分けている。"""
+    left = hp - first_dmg
+    if left <= 0:
+        return 1 + extra_turns
+    if rest_dmg <= 0:
+        return None
+    n = 1 + -(-left // rest_dmg) + extra_turns
+    return n if n <= MAX_TURNS else None
+
+
+def _sustain_cycle(hp_heal, passive, incoming):
+    """回復技を挟みながら生き残れるか。
+    n ターンに1回だけ回復技を使い、残り n-1 ターン攻撃できる、その n を返す。
+    回復技だけでは支えきれないなら None、そもそも削られないなら 0（毎ターン攻撃可）。"""
+    net = incoming - passive
+    if net <= 0:
+        return 0                      # たべのこしだけで足りる。回復技は要らない
+    if hp_heal <= 0:
+        return None
+    n = hp_heal // net + 1            # 1回の回復で net×(n-1) 分を取り戻せる
+    return n if n >= 2 else None      # n=1 は「毎ターン回復＝攻撃できない」ので支えられない
+
+
+def process_check(member, threat):
+    """この駒がこの相手を処理できるか。(できるか, 理由) を返す。
+
+    回復技はそのターン攻撃できない。これを踏まえると相手の最適行動は二択になる:
+      ・回復量 >= こちらの打点 なら、毎ターン回復すれば永久に落ちない → 処理不可
+      ・回復量 < こちらの打点 なら、回復するほど攻撃ターンを失って損 → 一度も回復しない
+    なので相手側は「回復し続けて詰む」か「まったく回復しない」かのどちらかで足りる。
+    """
+    back = their_hit(threat, member)
+    their_dmg = back['hi']                     # 相手は最高乱数
+    their_pri = back.get('pri', 0) or 0
+    my_hp, their_hp = member['st'][0], threat['st'][0]
+    my_heal, my_pass = _heal_parts(member)
+    their_heal, their_pass = _heal_parts(threat, threat['moves_use'])
+
+    # 2発目以降は相手が満タンではない。マルチスケイル・がんじょうは初撃にしか効かない
+    threat_hurt = dict(threat, hp_full=False)
+
+    best = None
+    for mv in member['moves']:
+        h = my_hit(member, mv, threat)
+        if not h or h.get('ohko') or not h.get('hi'):
+            continue                           # 一撃必殺は運任せなので数えない
+        h2 = my_hit(member, mv, threat_hurt) or h
+        first_dmg = h['lo']                    # 自分は最低乱数
+        rest_dmg = h2['lo']                    # 2発目以降（満タン依存の特性が切れた後）
+        # 相手が回復技を撃ち続けて耐えきれるなら、この技では永久に落とせない。
+        # 回復されると満タンに戻りうるので、判定には初撃ぶんの打点を使う
+        if their_heal and their_heal + their_pass >= first_dmg:
+            continue
+        extra = 1 if (h.get('sturdy') or h.get('disguise')) else 0
+        my_turns = _turns_to_ko(their_hp, first_dmg - their_pass,
+                                rest_dmg - their_pass, extra)
+        if my_turns is None:
+            continue
+        if mv in DRAWBACK_MOVES:
+            my_turns = my_turns * 2 - 1        # 反動で次のターン動けない
+        # こちらが回復技を挟んで支えられるか。挟むぶん攻撃ターンが減る
+        cycle = _sustain_cycle(my_heal, my_pass, their_dmg)
+        if cycle == 0:
+            their_turns = None                 # そもそも削られない
+        elif cycle:
+            their_turns = None
+            my_turns = -(-my_turns * cycle // (cycle - 1))   # n ターンに1回は回復に使う
+            if my_turns > MAX_TURNS:
+                continue
+        else:
+            their_turns = _turns_to_ko(my_hp, their_dmg - my_pass,
+                                       their_dmg - my_pass)
+        pri = h.get('pri', 0) or 0
+        first = (pri, member['speed']) > (their_pri, threat['speed'])
+        if their_turns is None:
+            ok = True
+        elif first:
+            ok = my_turns <= their_turns
+        else:
+            ok = my_turns < their_turns
+        if ok:
+            why = ('先手1発' if first and my_turns == 1 else
+                   '後手だが耐えて1発' if my_turns == 1 else
+                   f'打ち合い{my_turns}ターン')
+            if best is None or my_turns < best[0]:
+                best = (my_turns, mv, why)
+    if best:
+        return True, f"{best[1]}（{best[2]}）"
+    return False, ''
 
 
 def choose_move(hits):

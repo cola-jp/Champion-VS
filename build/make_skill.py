@@ -35,7 +35,8 @@ OUT = os.path.join(OUT_ROOT, NAME)
 
 # party.py は import した時点で party.txt を読み、無いと止まる。
 # 既定のパーティとしても例題としても要るので、リポジトリのものをそのまま入れる。
-SCRIPTS = ['engine.py', 'party.py', 'generate.py', 'consult.py', 'seed_party.py']
+SCRIPTS = ['engine.py', 'party.py', 'generate.py', 'consult.py', 'seed_party.py',
+           'matchup.py']
 DATA = ['dex.csv', 'moves.csv', 'type_chart.csv',
         'move_names_en_ja.json', 'abilities_ja.json']
 USAGE_SRC = '技使用率データ.JSON'

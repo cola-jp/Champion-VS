@@ -18,18 +18,19 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
-                    IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, ABILITY_DISPLAY, SOUND,
+                    IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
+                    CONTACT_HALF, ABILITY_DISPLAY, SOUND,
                     VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
                     MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
-                   CONTACT_MOVES, NON_CONTACT_MOVES, BOOSTING_MOVES,
+                   CONTACT_MOVES, NON_CONTACT_MOVES, BOOSTING_MOVES, PUNCH_MOVES,
                    MOLD_BREAKER_ABILITIES, FAIRY_SKIN_ABILITIES, SHARPNESS_ABILITIES,
                    MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, RARE_MOVE_THRESHOLD,
                    THREAT_RANK_LIMIT)
 import generate
 from generate import (build_threats, TYPE_COLOR, VERDICT_CLASS, ABILITY_JA,
                       ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES,
-                      ITEM_DAMAGE)
+                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS)
 
 OUT_DIR = os.path.join(ROOT, 'appdata')
 
@@ -89,6 +90,10 @@ def rules():
         immuneEn=[[k, v] for k, v in IMMUNE_EN.items()],
         halfJa=[[k, list(v)] for k, v in HALF_JA.items()],
         halfEn=[[k, list(v)] for k, v in HALF_EN.items()],
+        # もふもふ。受けるダメージが増える側と、接触技を半減する側の2枚。
+        doubleJa=[[k, list(v)] for k, v in DOUBLE_JA.items()],
+        doubleEn=[[k, list(v)] for k, v in DOUBLE_EN.items()],
+        contactHalf=list(CONTACT_HALF),
         abilityDisplay=ABILITY_DISPLAY,
         abilityJa=ABILITY_JA,
         abilityHandling=ABILITY_HANDLING,
@@ -97,6 +102,10 @@ def rules():
         sound=sorted(SOUND),
         slashMoves=sorted(SLASH_MOVES),
         contactMoves=sorted(CONTACT_MOVES),
+        punchMoves=sorted(PUNCH_MOVES),
+        # 処理判定（generate.process_check）で使う。JS側で書き写さない
+        recoveryMoves=sorted(RECOVERY_MOVES),
+        maxTurns=MAX_TURNS,
         nonContactMoves=sorted(NON_CONTACT_MOVES),
         ohkoMoves=sorted(OHKO_MOVES),
         statusMoves=sorted(STATUS_MOVES),
@@ -156,6 +165,8 @@ def golden():
                 backDisguise=bool(back.get('disguise')),
                 primaryDisguise=bool(primary.get('disguise')),
                 primaryHits=primary.get('hits'),
+                # 処理判定はJS側にも移植してあるので、期待値に入れて突き合わせる
+                processed=generate.process_check(m, t)[0],
                 boostMove=boosted['move'] if boosted else None,
                 boostPh=boosted['ph'] if boosted else None,
                 boostStages=boosted['stages'] if boosted else None,
