@@ -622,11 +622,11 @@ def offensive_mods(ability, move, m, attacker_types, atk, protean=False,
     return move_type, power, atk, extra, stab, flags
 
 
-def _bond_damage(power, atk, dfn, stab, t, extra):
+def _bond_damage(power, atk, dfn, stab, t, extra, crit=False):
     """おやこあいの合計ダメージ。2発目は威力1/4。
     連続技と同じく1発ずつ damage() を通す（発ごとに切り捨てが入るため）。"""
-    a = damage(power, atk, dfn, stab, t, extra)
-    b = damage(max(1.0, power / 4), atk, dfn, stab, t, extra)
+    a = damage(power, atk, dfn, stab, t, extra, crit)
+    b = damage(max(1.0, power / 4), atk, dfn, stab, t, extra, crit)
     return a[0] + b[0], a[1] + b[1]
 
 
@@ -672,13 +672,16 @@ def my_hit(member, move, threat, hp_eff=None):
 
     # 特性の倍率は「その他補正」に入れる。相性と掛け合わせてから1回で切り捨てると、
     # 段階を分けた場合と結果がずれる（ハードロックの0.75倍で実際にずれる）。
+    # 必ず急所に当たる技（トリックフラワーなど）は基礎ダメージが1.5倍になる。
+    # 段は damage() の中。威力を1.5倍する形で代用しないこと（+2 の扱いがずれる）
+    crit = m['crit']
     if m['multi']:
         lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am,
-                              skill_link=flags['skill_link'])
+                              skill_link=flags['skill_link'], crit=crit)
     elif flags['parental_bond']:
-        lo, hi = _bond_damage(power, atk, dfn, stab, t, extra * am)
+        lo, hi = _bond_damage(power, atk, dfn, stab, t, extra * am, crit)
     else:
-        lo, hi = damage(power, atk, dfn, stab, t, extra * am)
+        lo, hi = damage(power, atk, dfn, stab, t, extra * am, crit)
     # 表示用は「タイプ相性」と「防御特性による補正」を分ける。
     # 両者を掛けた数字だけ出すと、マルチスケイルで半減された2倍が ×1.0 に見えてしまう。
     v = verdict(lo, hi, hp)
@@ -698,6 +701,8 @@ def my_hit(member, move, threat, hp_eff=None):
         result['hits'] = '2回(おやこあい)'
     if sturdy:
         result['sturdy'] = True
+    if crit:
+        result['crit'] = True
     if m['pri']:
         result['pri'] = m['pri']
     if am != 1.0 and ab_name:
@@ -807,11 +812,11 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         # 特性の倍率は my_hit と同じく「その他補正」に入れる（相性とは段階を分ける）
         if m['multi']:
             lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am,
-                                  skill_link=flags['skill_link'])
+                                  skill_link=flags['skill_link'], crit=m['crit'])
         elif flags['parental_bond']:
-            lo, hi = _bond_damage(power, atk, dfn, stab, t, extra * am)
+            lo, hi = _bond_damage(power, atk, dfn, stab, t, extra * am, m['crit'])
         else:
-            lo, hi = damage(power, atk, dfn, stab, t, extra * am)
+            lo, hi = damage(power, atk, dfn, stab, t, extra * am, m['crit'])
         cand = dict(move=mv, lo=lo, hi=hi, usage=usage,
                     pl=round(lo * 100 / member['st'][0]),
                     ph=round(hi * 100 / member['st'][0]))
@@ -819,6 +824,8 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
             cand['hits'] = m['multi']['label']
         if flags['parental_bond']:
             cand['hits'] = '2回(おやこあい)'
+        if m['crit']:
+            cand['crit'] = True
         if m['pri']:
             cand['pri'] = m['pri']
         (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)

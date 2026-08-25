@@ -251,3 +251,6 @@ margin-left:4px;margin-right:1px}
 background:var(--tc);color:#10121a;border:1px solid var(--tc)}
 .wk2{font-size:12px;font-weight:700;padding:2px 8px;border-radius:4px;
 background:transparent;color:var(--tc);border:1px solid var(--tc)}
+/* 必ず急所に当たる技。数字が1.5倍になっている理由を出さないと読み違える */
+.crt{font-size:10px;font-weight:800;background:#4a2a33;color:#ffb3c1;padding:1px 5px;
+border-radius:3px;vertical-align:1px}

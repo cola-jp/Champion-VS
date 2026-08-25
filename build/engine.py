@@ -140,13 +140,13 @@ def power_per_faint(effect, power):
 
 
 def multi_damage(mh, power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0,
-                 skill_link=False):
+                 skill_link=False, crit=False):
     """連続技の合計ダメージ。(最低回数×最低乱数, 最高回数×最高乱数) を返す。
     1発ずつ damage() を通して足すこと。各発で切り捨てが入るので、
     威力を合算してから1回で計算すると数値が合わない。"""
     def total(hits, idx):
         return sum(damage(power + mh['step'] * i, attack, defense,
-                          stab, type_eff, extra)[idx]
+                          stab, type_eff, extra, crit)[idx]
                    for i in range(hits))
     lo_hits = mh['max'] if skill_link else mh['min']
     return total(lo_hits, 0), total(mh['max'], 1)
@@ -192,6 +192,8 @@ for _r in _read_csv(MOVES_CSV):
         # 一撃必殺・連続技は技名を並べるのではなく効果欄から拾う。
         # 新しい技が増えても、効果欄に同じ書き方をしてあれば勝手に効く。
         ohko=bool(_effect and '一撃必殺' in _effect),
+        # 「必ず急所に当たる」だけ拾う。「急所に当たりやすい」は確率なので数えない
+        crit=bool(_effect and '必ず急所' in _effect),
         multi=parse_multi_hit(_effect, float(_r['power']) if _r['power'] else 0),
         type_override=parse_type_override(_effect))
 
@@ -496,14 +498,23 @@ def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=F
 
 # ---------------------------------------------------------------- ダメージ計算
 
-def damage(power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0):
+def damage(power, attack, defense, stab=1.0, type_eff=1.0, extra=1.0, crit=False):
     """レベル50固定のダメージ計算。(最低乱数, 最高乱数) を返す。
     stab   : タイプ一致補正（通常1.5 / てきおうりょく2.0）
     type_eff: タイプ相性 × 防御特性の倍率
     extra  : その他の乗算補正（いのちのたま1.3 / きれあじ1.5 / フェアリースキン1.2 など）
-    丸めは 基礎 → 乱数 → 一致 → 相性 → その他 の順に切り捨てる。
+    crit   : 必ず急所に当たる技（トリックフラワーなど）。1.5倍
+    丸めは 基礎 → 急所 → 乱数 → 一致 → 相性 → その他 の順に切り捨てる。
+
+    **急所は乱数より前。** 本家の式が
+    「基礎ダメージ × 急所 × 乱数 × 一致 × 相性 × その他」の順で、
+    急所倍率は基礎ダメージ（+2 まで含めた値）に掛かる。
+    威力を1.5倍する形で代用すると +2 の扱いがずれて1前後合わなくなるので、
+    ここで段を分けている。
     """
     base = int(int(2 * 50 / 5 + 2) * power * attack / defense / 50) + 2
+    if crit:
+        base = int(base * 1.5)
 
     def roll(r):
         x = int(base * r)

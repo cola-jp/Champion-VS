@@ -137,12 +137,15 @@ const Engine = (() => {
   // ------------------------------------------------------------ ダメージ
 
   /* レベル50固定。[最低乱数, 最高乱数] を返す。
-     丸めは 基礎 → 乱数 → 一致 → 相性 → その他 の順に切り捨てる。順番を変えないこと。 */
-  function damage(power, attack, defense, stab, typeEff, extra) {
+     丸めは 基礎 → 急所 → 乱数 → 一致 → 相性 → その他 の順に切り捨てる。順番を変えないこと。
+     急所（必ず急所に当たる技）は乱数より前で、基礎ダメージ（+2 まで含めた値）に1.5を掛ける。
+     威力を1.5倍する形で代用すると +2 の扱いがずれる。 */
+  function damage(power, attack, defense, stab, typeEff, extra, crit) {
     stab = stab === undefined ? 1.0 : stab;
     typeEff = typeEff === undefined ? 1.0 : typeEff;
     extra = extra === undefined ? 1.0 : extra;
-    const base = Math.trunc(22 * power * attack / defense / 50) + 2;
+    let base = Math.trunc(22 * power * attack / defense / 50) + 2;
+    if (crit) base = Math.trunc(base * 1.5);
     const roll = (r) => {
       let x = Math.trunc(base * r);
       x = Math.trunc(x * stab);
@@ -156,11 +159,11 @@ const Engine = (() => {
   /* 連続技の合計ダメージ。1発ずつ damage() を通して足すこと。
      各発で切り捨てが入るので、威力を合算して1回で計算すると数値が合わない。
      何回当たるか（min/max）と威力の増分（step）は技データから導いた結果を使う。 */
-  function multiDamage(mh, power, attack, defense, stab, typeEff, extra, skillLink) {
+  function multiDamage(mh, power, attack, defense, stab, typeEff, extra, skillLink, crit) {
     const total = (hits, idx) => {
       let s = 0;
       for (let i = 0; i < hits; i++) {
-        s += damage(power + mh.step * i, attack, defense, stab, typeEff, extra)[idx];
+        s += damage(power + mh.step * i, attack, defense, stab, typeEff, extra, crit)[idx];
       }
       return s;
     };
@@ -170,9 +173,9 @@ const Engine = (() => {
 
   /* おやこあいの合計ダメージ。2発目は威力1/4。
      連続技と同じく1発ずつ damage() を通す（発ごとに切り捨てが入るため）。 */
-  function bondDamage(power, atk, dfn, stab, t, extra) {
-    const a = damage(power, atk, dfn, stab, t, extra);
-    const b = damage(Math.max(1.0, power / 4), atk, dfn, stab, t, extra);
+  function bondDamage(power, atk, dfn, stab, t, extra, crit) {
+    const a = damage(power, atk, dfn, stab, t, extra, crit);
+    const b = damage(Math.max(1.0, power / 4), atk, dfn, stab, t, extra, crit);
     return [a[0] + b[0], a[1] + b[1]];
   }
 
@@ -298,11 +301,13 @@ const Engine = (() => {
 
     // 特性の倍率は「その他補正」に入れる。相性と掛け合わせてから1回で切り捨てると、
     // 段階を分けた場合と結果がずれる（ハードロックの0.75倍で実際にずれる）。
+    // 必ず急所に当たる技（トリックフラワーなど）は基礎ダメージが1.5倍になる
+    const crit = !!m.crit;
     const [lo, hi] = m.multi
-      ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink)
+      ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink, crit)
       : (flags.parentalBond
-        ? bondDamage(power, atk, dfn, stab, t, extra * am)
-        : damage(power, atk, dfn, stab, t, extra * am));
+        ? bondDamage(power, atk, dfn, stab, t, extra * am, crit)
+        : damage(power, atk, dfn, stab, t, extra * am, crit));
 
     let v = verdict(lo, hi, hp);
     if (disguise) v = verdictPlusOne(v);   // 皮で1回止まるぶん手数が増える
@@ -318,6 +323,7 @@ const Engine = (() => {
     if (m.multi) res.hits = m.multi.label;
     if (flags.parentalBond) res.hits = '2回(おやこあい)';
     if (sturdy) res.sturdy = true;
+    if (crit) res.crit = true;
     if (m.pri) res.pri = m.pri;
     if (am !== 1.0 && abName) { res.ab_name = abName; res.ab_mult = am; }
     const acc = m.acc && Math.min(100.0, m.acc * flags.accMult);
@@ -447,10 +453,10 @@ const Engine = (() => {
       const dfn = m.cat === '物理' ? member.st[2] : member.st[4];
       // 特性の倍率は myHit と同じく「その他補正」に入れる（相性とは段階を分ける）
       const [lo, hi] = m.multi
-        ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink)
+        ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink, !!m.crit)
         : (flags.parentalBond
-          ? bondDamage(power, atk, dfn, stab, t, extra * am)
-          : damage(power, atk, dfn, stab, t, extra * am));
+          ? bondDamage(power, atk, dfn, stab, t, extra * am, !!m.crit)
+          : damage(power, atk, dfn, stab, t, extra * am, !!m.crit));
       const cand = {
         move: mv, lo, hi, usage,
         pl: pyRound(lo * 100 / member.st[0]),
@@ -458,6 +464,7 @@ const Engine = (() => {
       };
       if (m.multi) cand.hits = m.multi.label;
       if (flags.parentalBond) cand.hits = '2回(おやこあい)';
+      if (m.crit) cand.crit = true;
       if (m.pri) cand.pri = m.pri;
       (usage > R.rareMoveThreshold ? main : rare).push(cand);
     }

@@ -158,7 +158,9 @@ claude.ai 側のコード実行環境で `seed_party.py` と `consult.py` が動
 `data/dex.csv` の列は `no,name,type1,type2,abilities,hp,atk,def,spa,spd,spe`。
 `data/moves.csv` の列は `name,type,category,power,accuracy,priority,effect,rank_change`。
 
-一撃必殺技は `effect` に「一撃必殺」と書けば自動で拾われる。積み技は `rank_change`
+一撃必殺技は `effect` に「一撃必殺」と書けば自動で拾われる。
+必ず急所に当たる技は `effect` に「必ず急所」と書けばダメージが1.5倍になる
+（「急所に当たりやすい」は確率なので拾わない）。積み技は `rank_change`
 （`自分こうげき+2` のような書式）から判定され、上がる能力と段階数もそこから決まる。
 どちらも技名の一覧を別に持っていないので、CSVに書けばそれだけで効く。
 

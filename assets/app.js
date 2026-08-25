@@ -47,6 +47,8 @@
     let tags = '';
     if (primary.pri > 0) tags += ' <span class="pri">先制</span>';
     if (primary.hits) tags += ` <span class="hits">${esc(primary.hits)}</span>`;
+    // 必ず急所に当たる技は数字が1.5倍になっているので、理由を出さないと読み違える
+    if (primary.crit) tags += ' <span class="crt">急所</span>';
     if (primary.disguise) tags += ' <span class="abm">ばけのかわ+1発</span>';
     if (primary.ab_name) tags += ` <span class="abm">${esc(primary.ab_name)}×${mult(primary.ab_mult)}</span>`;
     if (drawback.has(primary.move)) tags += ' <span class="rl">反動</span>';
@@ -74,6 +76,7 @@
     let backTags = '';
     if (back.pri > 0) backTags += ' <span class="pri">先制</span>';
     if (back.hits) backTags += ` <span class="hits">${esc(back.hits)}</span>`;
+    if (back.crit) backTags += ' <span class="crt">急所</span>';
     if (back.disguise) backTags += ' <span class="abm">皮が剥がれた後</span>';
 
     let backSub = '';
