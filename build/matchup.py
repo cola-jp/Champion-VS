@@ -19,6 +19,7 @@
 import argparse
 import os
 import sys
+import unicodedata
 from itertools import combinations
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -47,28 +48,40 @@ def species_index(threats):
     return out
 
 
+def fold(s):
+    """照合用のキー。図鑑名はカタカナだが、変換前のひらがなで打たれても引けるように
+    両側をカタカナへ寄せる。ひらがな（U+3041〜U+3096）とカタカナ（U+30A1〜U+30F6）は
+    並びが同じなので 0x60 ずらすだけでよい。半角カナは NFKC で先に全角へ直す。
+    select.js の fold() と同じ規則。片方だけ変えると画面とCLIで挙動が食い違う。"""
+    s = unicodedata.normalize('NFKC', s or '').replace(' ', '').replace('　', '')
+    return ''.join(chr(ord(c) + 0x60) if 'ぁ' <= c <= 'ゖ' else c for c in s)
+
+
+def strip_name(s):
+    """さらに表記ゆれを落としたキー。括弧書きと「メガ」を外す。"""
+    s = fold(s)
+    for op, cl in (('(', ')'), ('（', '）')):
+        while op in s and cl in s:
+            s = s[:s.index(op)] + s[s.index(cl) + 1:]
+    return s[2:] if s.startswith('メガ') else s
+
+
 def resolve(name, index):
-    """表記ゆれを吸収して1体に決める。決まらないときは候補を返して呼び出し側に投げる。"""
-    q = name.strip()
-    if q in index:
-        return q, []
-
-    def norm(s):
-        s = s.replace(' ', '').replace('　', '')
-        while '(' in s and ')' in s:
-            s = s[:s.index('(')] + s[s.index(')') + 1:]
-        while '（' in s and '）' in s:
-            s = s[:s.index('（')] + s[s.index('）') + 1:]
-        return s[2:] if s.startswith('メガ') else s
-
-    nq = norm(q)
+    """表記ゆれを吸収して1体に決める。決まらないときは候補を返して呼び出し側に投げる。
+    前方一致を部分一致より必ず上に置く（「ガブ」で メガブリガロン が先に出ると使えない）。"""
+    fq, sq = fold(name), strip_name(name)
+    if not fq:
+        return None, []
     ranked = []
     for n in index:
-        if n.startswith(q):
+        fn, sn = fold(n), strip_name(n)
+        if fn == fq:
+            ranked.append((0, n))
+        elif fn.startswith(fq):
             ranked.append((1, n))
-        elif norm(n).startswith(nq):
+        elif sn.startswith(sq):
             ranked.append((2, n))
-        elif q in n or nq in norm(n):
+        elif fq in fn or sq in sn:
             ranked.append((3, n))
     if not ranked:
         return None, []

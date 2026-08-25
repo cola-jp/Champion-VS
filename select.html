@@ -19,7 +19,7 @@
 
   <section class="card" id="inputCard">
     <div class="chead"><span class="nm">相手のパーティー</span>
-      <span class="tag">チーム選択画面を見ながら6体入れる。数文字で候補が出る</span>
+      <span class="tag">チーム選択画面を見ながら6体入れる。ひらがなのまま数文字で候補が出る（がぶ → ガブリアス）</span>
       <span class="stats"><button class="tg" id="clear">全部消す</button></span>
     </div>
     <div id="slots" class="slots"></div>
@@ -27,7 +27,8 @@
 
   <div id="result"><div class="empty"><h2>読み込み中…</h2></div></div>
 
-  <p class="note">相手の名前を入れると、その1体ずつに対して自分のどの駒が「処理できる」かを出す。<br>
+  <p class="note">相手の名前を入れると、その1体ずつに対して自分のどの駒が「処理できる」かを出す。
+  名前は<b>ひらがなのままでよい</b>（変換しなくても候補が出る）。「メガ」は付けても付けなくても引ける。<br>
   <b>処理できる</b>＝①先手（素早さ上か先制技）で1発で倒せる ②後手でも相手の最大打点を耐えて倒せる
   ③打ち合いで先に倒しきる、のいずれか。乱数はこちらに不利な側で固定していて、
   自分は最低乱数・相手は最高乱数。相手の回復技とたべのこしも差し引いている。<br>
