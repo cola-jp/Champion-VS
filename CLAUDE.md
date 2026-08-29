@@ -9,6 +9,8 @@
 data/dex.csv               図鑑。種族値・タイプ・特性（一次データ）
 data/moves.csv             技データ（一次データ）
 data/type_chart.csv        タイプ相性表（一次データ）
+data/常用漢字.txt           文字列コードに使う常用漢字2136字。**並びを変えない**
+data/code_dict.json        文字列コードの台帳。**追記専用。並べ替え・挿入は禁止**
 data/ポケモン図鑑.xlsx      CSVの移行元。コードはもう読まない。消さずに残してある
 data/技使用率データ.JSON     使用率230体分（pkmnchamps.com のAPIレスポンス。月ごとに差し替える）
                            表に載せるのは上位100位まで（party.THREAT_RANK_LIMIT）。型を分けて159行
@@ -24,6 +26,7 @@ build/export_app_data.py    ブラウザが読む appdata/*.json を書き出す
 build/consult.py            構築相談用の集計をMarkdownで書き出す（表とは別の切り口）
 build/seed_party.py         使用率データから party.txt のブロックを起こす（軸を決めた時の叩き台）
 build/matchup.py            相手6体に対する処理担当と推奨選出（select.html と同じ判定のCLI版）
+build/partycode.py          パーティ ←→ 文字列コード。台帳の保守も行う
 build/make_skill.py         claude.ai 用のスキルを dist/ に組み立てる（配布物。手で作らない）
 skill/SKILL.md              そのスキルの本文。バンドルの中身はここと build/ と data/ から作る
 build/verify_engine.js      JS移植がPython版と同じ数値を出すか確認する（node で実行）
@@ -35,6 +38,7 @@ assets/engine.js            ダメージ計算（Python版からの移植）
 assets/app.js               ダメージ表の描画
 assets/select.js            選出補助の画面
 assets/ui.js                ダメージ表と選出補助で共通の小さい描画部品（弱点の帯など）
+assets/partycode.js         文字列コード（Python版からの移植）
 assets/party.js             パーティー登録画面
 assets/store.js             登録したパーティの保存（localStorage）
 assets/style.css            共通のCSS
@@ -547,6 +551,53 @@ A振り型の比率26%がドラゴナイト非採用率26%と一致する。`gen
 相性表は `border-collapse: separate` にすること。`collapse` と `position:sticky` を
 併用すると Chrome でセルの幅が0になる。名前の列を左に貼り付けるために sticky が要るので、
 collapse には戻せない。表の幅は `max-content`（`width:100%` だと列が潰れる）。
+
+## パーティの文字列コード
+
+`party.txt` は今までどおり一次データで、コードはその**持ち運び用の別表現**。
+`party.html` の「文字列コード」から作る／読む。6体で47文字。
+
+```
+build/partycode.py   ← 本体
+assets/partycode.js  ← 移植。golden.json の partyCode で突き合わせ
+```
+
+パーティ全体を**1つの多倍長整数**にして、2370種類の文字で書き下している。
+項目ごとに必要な通り数（基数）が違うので、ビット単位で切り上げず
+`値 = 値 × 基数 + 数字` で詰める。ビット詰めなら56文字のところが47文字になる。
+Python は標準の整数、JS は BigInt でどちらも誤差が出ない。
+
+### 触ってはいけないもの
+
+- **文字集合（`_alphabet()`）の並び。** 英数 → ひらがな → カタカナ → 常用漢字の順で凍結。
+  変えると既存のコードが全部読めなくなる。変えるなら `VERSION` を上げて古い版も読めるようにする。
+- **`data/code_dict.json` は追記専用。** 名前の並びがそのままコードの意味になる。
+  途中に挿入したり並べ替えたりすると、**去年作ったコードが別のポケモンになる**。
+  新しい図鑑・技・持ち物は `sync_registry()` が末尾に足す。
+  `build/export_app_data.py` が更新し、`build/generate.py` は台帳が古ければ**エラーで止まる**。
+- **`data/常用漢字.txt` の並び。** 文字集合の一部なので同じ理由で凍結。
+
+### 設計の理由
+
+- **なぜ台帳が要るか**: 名前をその場でソートした順番で符号化すると、
+  `dex.csv` に1行増えただけで既存コードが別のポケモンを指す。エラーにもならず黙って壊れる。
+- **なぜ能力ポイントを通し番号にするか**: 6ステータス各0〜32・合計66以下は 136,663,185 通りで
+  27.03bit。6bit×6＝36bitで持つと9bit無駄になる。場合の数の表は Python が作って
+  `code.json` で渡す（同じ漸化式を2箇所に書くと必ずずれる）。
+- **持ち物だけ生テキストの逃げ道がある**: 図鑑・技・性格・特性は `party.py` が検証するので
+  台帳に必ず載っているが、持ち物は自由入力。台帳に無いものは1文字16bitで入れる
+  （その駒だけ12文字ほど伸びる）。メガストーンは使用率データに出たものしか
+  `ITEM_JA` に無いので、図鑑のメガから「通常形態名＋ナイト」を作って台帳に足してある。
+  **これは符号表を埋めるための推測**で、ゲーム内表記と違っても生テキストに落ちるだけ。
+- **コメント行は復元されない。** `party.txt` の `#` 行はコードに入らない。
+  データとしては同じものに戻るが、バイト単位では一致しない。
+
+### 検証
+
+- `build/generate.py` が毎回 `party.txt` を符号化→復号して同じパーティに戻るか確かめる
+- `appdata/golden.json` の `partyCode` で、**JS が同じ文字列を作れるか**を全件検証に含める
+  （復号して party.txt と一致するか、再符号化して同じ文字列になるか）
+- ランダムなパーティ3000件で往復を確認済み（不一致0）
 
 ## 表示のルール
 

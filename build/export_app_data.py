@@ -28,6 +28,7 @@ from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, RARE_MOVE_THRESHOLD,
                    THREAT_RANK_LIMIT)
 import generate
+import partycode
 from generate import (build_threats, TYPE_COLOR, VERDICT_CLASS, ABILITY_JA,
                       ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES,
                       ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS, type_weakness,
@@ -200,12 +201,38 @@ def golden():
             ))
     with open(os.path.join(ROOT, 'party.txt'), encoding='utf-8') as f:
         party_text = f.read()
+    # 文字列コードもJS移植の突き合わせ対象にする。Python が作ったコードを
+    # ブラウザで復元し、さらに再符号化して同じ文字列になるかを見る
     return dict(partyText=party_text,
+                partyCode=partycode.encode(PARTY),
                 party=[dict(id=p['id'], name=p['name'], form=p['form'],
                             species=p['species'], ev=p['ev'], nature=p['nature'],
                             st=m['st'])
                        for p, m in zip(PARTY, members)],
                 rows=rows)
+
+
+def code_data():
+    """パーティの文字列コード（assets/partycode.js）が読むもの。
+
+    文字集合・台帳・場合の数の表は**すべて Python 側が一次情報**で、JS には結果だけ渡す。
+    JS 側で作り直すと、同じパーティから違うコードが出る。
+    台帳は追記専用なので、ここで data/code_dict.json も最新にする。"""
+    reg, added = partycode.sync_registry()
+    if added:
+        for key, names in added.items():
+            print(f'  台帳に追記: {key} {len(names)}件 '
+                  f'({"、".join(names[:3])}{" ほか" if len(names) > 3 else ""})')
+    for key in ('pokemon', 'moves', 'items', 'natures'):
+        if len(reg[key]) > 4000:
+            print(f'  警告: 台帳の {key} が {len(reg[key])} 件。コードが長くなっています')
+    return dict(version=partycode.VERSION, alphabet=partycode.ALPHABET,
+                pokemon=reg['pokemon'], moves=reg['moves'],
+                items=reg['items'], natures=reg['natures'],
+                evCount=partycode.EV_COUNT,
+                maxParty=partycode.MAX_PARTY, maxItemLen=partycode.MAX_ITEM_LEN,
+                checkMod=partycode.CHECK_MOD,
+                maxPointsTotal=MAX_POINTS_TOTAL, maxPointsPerStat=MAX_POINTS_PER_STAT)
 
 
 def write(name, obj):
@@ -224,6 +251,7 @@ def main():
                       ('moves.json', move_rows()),
                       ('types.json', type_chart()),
                       ('rules.json', rules()),
+                      ('code.json', code_data()),
                       ('golden.json', golden())]:
         path, size = write(name, obj)
         total += size

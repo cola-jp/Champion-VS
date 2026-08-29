@@ -1068,6 +1068,36 @@ def verify(members):
         sys.exit(1)
 
 
+def verify_party_code():
+    """party.txt を文字列コードにして戻し、同じパーティになるか確かめる。
+
+    符号化は台帳（data/code_dict.json）のインデックスに依っているので、
+    台帳と図鑑・技がずれると黙って別のポケモンになる。ここで止める。
+    台帳の追記は build/export_app_data.py が行うので、こちらは読むだけ。"""
+    import partycode
+    reg, added = partycode.sync_registry(write=False)
+    if added:
+        raise SystemExit(
+            '文字列コードの台帳（data/code_dict.json）が古いです。\n'
+            '  未登録: ' + '、'.join(f'{k} {len(v)}件' for k, v in added.items()) + '\n'
+            '  python build/export_app_data.py を実行して台帳を更新してください。')
+    code = partycode.encode(PARTY)
+    back = partycode.decode(code)
+    got = _parse_party_text(back)
+    want = [(p['name'], p['form'], p['item'], p['ability'],
+             p['nature'], tuple(p['ev']), tuple(p['moves'])) for p in PARTY]
+    if got != want:
+        raise SystemExit('文字列コードの往復でパーティが変わりました。\n'
+                         f'  元: {want}\n  戻り: {got}')
+    return code
+
+
+def _parse_party_text(text):
+    from party import _parse_party
+    return [(p['name'], p['form'], p['item'], p['ability'],
+             p['nature'], tuple(p['ev']), tuple(p['moves'])) for p in _parse_party(text)]
+
+
 def main():
     """データの整合性を確かめる。以前はここで index.html を書き出していたが、
     表示はブラウザ側（assets/app.js）に移したので、生成物は作らない。
@@ -1077,8 +1107,10 @@ def main():
     members = build_members()
     verify(members)
     threats = build_threats()
+    code = verify_party_code()
     print('検証完了')
     print(f'  相手 {len(threats)} 行 / 味方 {len(members)} 体')
+    print(f'  パーティの文字列コード {len(code)} 文字（往復一致）')
     print('  ブラウザ用データを作るには: python build/export_app_data.py')
 
 

@@ -785,6 +785,27 @@ const Engine = (() => {
       }
     });
 
+    // 文字列コード。Python が作ったコードを復元して、同じパーティに戻るか。
+    // さらに再符号化して同じ文字列になるか（JS側の符号化も突き合わせる）。
+    if (typeof PartyCode !== 'undefined' && PartyCode.ready && golden.partyCode) {
+      try {
+        const back = parseParty(PartyCode.decode(golden.partyCode, DEX, R));
+        const want = members.map(m => [m.name, m.form, m.item, m.ability,
+          m.nature, m.ev.join(','), m.moves.join('/')].join('|'));
+        const got = back.map(m => [m.name, m.form, m.item, m.ability,
+          m.nature, m.ev.join(','), m.moves.join('/')].join('|'));
+        if (want.join('|') !== got.join('|')) {
+          issues.push('文字列コードから復元したパーティが party.txt と違う');
+        }
+        const again = PartyCode.encodeMembers(members, DEX, R);
+        if (again !== golden.partyCode) {
+          issues.push(`文字列コードがPython版と違う: 期待 ${golden.partyCode} / 実際 ${again}`);
+        }
+      } catch (e) {
+        issues.push('文字列コードの検証で例外: ' + e.message);
+      }
+    }
+
     let checked = 0;
     for (const row of golden.rows) {
       const t = threats[row.threat];

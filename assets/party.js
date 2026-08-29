@@ -20,6 +20,7 @@
   });
 
   let entries = [];
+  let DEX_RAW = null, RULES = null;   // 文字列コードの復元で使う（特性一覧・性格の対応）
   const $ = id => document.getElementById(id);
 
   function esc(s) {
@@ -324,12 +325,16 @@
 
   async function main() {
     const loaded = {};
-    for (const n of ['dex', 'moves', 'types', 'rules']) {
+    for (const n of ['dex', 'moves', 'types', 'rules', 'code']) {
       const res = await fetch(`appdata/${n}.json`);
       if (!res.ok) throw new Error(`appdata/${n}.json が読めません`);
       loaded[n] = await res.json();
     }
     Engine.load(loaded);
+    // 文字列コードの符号表。文字集合も台帳も Python 側が一次情報で、ここでは作らない
+    PartyCode.load(loaded.code);
+    DEX_RAW = loaded.dex;
+    RULES = loaded.rules;
     fillDatalists();
 
     const saved = PartyStore.load();
@@ -369,6 +374,47 @@
 
     $('download').addEventListener('click', () => {
       PartyStore.download(entriesToText(entries), 'party.txt');
+    });
+
+    // ---- 文字列コード ----
+    // 画面の入力（能力ポイント）をそのまま渡す。実数値は復元側で計算し直すので、
+    // コードには入れない（入れると実数値とポイントが食い違ったコードを作れてしまう）
+    $('mkcode').addEventListener('click', () => {
+      try {
+        const code = PartyCode.encode(entries.map(e => ({
+          name: e.name, item: e.item, nature: e.natureJa, ability: e.ability,
+          ev: e.points.map(x => parseInt(x, 10) || 0), moves: e.moves,
+        })), DEX_RAW);
+        $('code').value = code;
+        flash(`コードを作りました（${code.length}文字）。`);
+      } catch (err) {
+        flash('コードにできません: ' + err.message, true);
+      }
+    });
+
+    $('copycode').addEventListener('click', async () => {
+      const v = $('code').value.trim();
+      if (!v) { flash('先に「コードを作る」を押してください。', true); return; }
+      try {
+        await navigator.clipboard.writeText(v);
+        flash('コピーしました。');
+      } catch (err) {
+        // クリップボードが使えない環境（http や権限なし）では選択状態にして手で写せるようにする
+        $('code').select();
+        flash('コピーできなかったので選択しました。手でコピーしてください。', true);
+      }
+    });
+
+    $('usecode').addEventListener('click', () => {
+      const v = $('code').value.trim();
+      if (!v) { flash('コードを貼り付けてください。', true); return; }
+      try {
+        const text = PartyCode.decode(v, DEX_RAW, RULES);
+        loadText(text);
+        flash('コードから読み込みました（まだ保存はされていません）。');
+      } catch (err) {
+        flash('コードが読めません: ' + err.message, true);
+      }
     });
 
     $('reset').addEventListener('click', async () => {

@@ -36,9 +36,14 @@ OUT = os.path.join(OUT_ROOT, NAME)
 # party.py は import した時点で party.txt を読み、無いと止まる。
 # 既定のパーティとしても例題としても要るので、リポジトリのものをそのまま入れる。
 SCRIPTS = ['engine.py', 'party.py', 'generate.py', 'consult.py', 'seed_party.py',
-           'matchup.py']
+           'matchup.py', 'partycode.py']
 DATA = ['dex.csv', 'moves.csv', 'type_chart.csv',
-        'move_names_en_ja.json', 'abilities_ja.json']
+        'move_names_en_ja.json', 'abilities_ja.json',
+        # 文字列コードの台帳。並びが意味を持つので必ず入れる
+        'code_dict.json']
+# zip に日本語のファイル名を入れると環境によっては化けて取り出せないので、
+# 配布物では ASCII 名にする。partycode.py がこちらの名前も見るようになっている。
+RENAME = {'常用漢字.txt': 'joyo.txt'}
 USAGE_SRC = '技使用率データ.JSON'
 # zip に日本語のファイル名を入れると環境によっては化けて取り出せないので、
 # 配布物では ASCII 名にする。engine.py がこちらの名前も見るようになっている。
@@ -63,6 +68,8 @@ def main():
     for name in DATA:
         shutil.copy(os.path.join(ROOT, 'data', name),
                     os.path.join(OUT, 'data', name))
+    for src, dst in RENAME.items():
+        shutil.copy(os.path.join(ROOT, 'data', src), os.path.join(OUT, 'data', dst))
 
     with open(os.path.join(ROOT, 'data', USAGE_SRC), encoding='utf-8') as f:
         usage = json.load(f)

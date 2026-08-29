@@ -42,6 +42,23 @@
       </section>
 
       <section class="panel">
+        <h2>文字列コード</h2>
+        <div class="body">
+          <p class="hint">パーティを短い文字列にして、保存したり人に渡したりできる。
+            <code>party.txt</code> はそのまま残るので、置き換えるものではない。<br>
+            使う文字は英数・ひらがな・カタカナ・常用漢字。<b>コメント行は残らない</b>
+            （データとしては同じものに戻る）。</p>
+          <textarea id="code" class="fmt" spellcheck="false" style="min-height:64px"
+            placeholder="ここにコードを貼って「コードから読み込む」"></textarea>
+          <div class="btnrow">
+            <button class="act" id="mkcode">コードを作る</button>
+            <button class="act" id="copycode">コピー</button>
+            <button class="act" id="usecode">コードから読み込む</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
         <h2>書き出し</h2>
         <div class="body">
           <p class="hint">保存するとこのブラウザに記録され、ダメージ表がこのパーティで計算される。
@@ -79,6 +96,7 @@
 <datalist id="dl-items"></datalist>
 
 <script src="assets/engine.js"></script>
+<script src="assets/partycode.js"></script>
 <script src="assets/store.js"></script>
 <script src="assets/party.js"></script>
 </body></html>

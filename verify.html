@@ -10,6 +10,7 @@ h1{font-size:16px;letter-spacing:.1em;color:#98a1b8;margin-bottom:16px}
 <h1>エンジン自己検証 — appdata/golden.json との突き合わせ</h1>
 <div id="out">読み込み中…</div>
 <script src="assets/engine.js"></script>
+<script src="assets/partycode.js"></script>
 <script>
 (async () => {
   const out = document.getElementById('out');
@@ -20,7 +21,7 @@ h1{font-size:16px;letter-spacing:.1em;color:#98a1b8;margin-bottom:16px}
     out.appendChild(d);
   };
   try {
-    const names = ['dex', 'moves', 'types', 'rules', 'threats', 'golden'];
+    const names = ['dex', 'moves', 'types', 'rules', 'threats', 'golden', 'code'];
     const loaded = {};
     for (const n of names) {
       const r = await fetch(`appdata/${n}.json`);
@@ -29,6 +30,7 @@ h1{font-size:16px;letter-spacing:.1em;color:#98a1b8;margin-bottom:16px}
     }
     out.textContent = '';
     Engine.load(loaded);
+    PartyCode.load(loaded.code);
     const t0 = performance.now();
     const res = Engine.selfTest(loaded.golden, loaded.threats);
     const ms = (performance.now() - t0).toFixed(0);
