@@ -272,8 +272,21 @@ border-radius:3px;vertical-align:1px}
 width:max-content;min-width:100%;border-top:1px solid var(--line)}
 .mtx th,.mtx td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
 padding:4px 7px;text-align:center}
-/* タイプの列は1文字表記なので詰める。18列ぶんの横幅がここで効く */
-.mtx th.ty,.mtx td.ty,.mtx td.ef{padding:4px 5px}
+/* タイプの列は1文字表記なので詰める。18列ぶんの横幅がここで効くので、
+   ここを1px詰めるだけで表全体が36px縮む。1280pxの画面に収めるための調整。 */
+.mtx th.ty,.mtx td.ty,.mtx td.ef{padding:4px}
+/* 各行の1つ目・2つ目のタイプは正方形に揃える。単タイプでも空セルを置いてあるので、
+   2セルとも同じ大きさになり、右隣の相性表が必ず同じ位置から始まる。
+   **色はセルではなく中の span に付ける。** セルを塗ると行の高さ（名前欄のボタンで決まる）に
+   引っ張られて縦長になる。 */
+.mtx td.tyc{width:26px;min-width:26px;max-width:26px;padding:1px;background:var(--surface)}
+.tybox{display:inline-block;width:24px;height:24px;line-height:24px;border-radius:3px;
+background:var(--tc);color:#10121a;font-weight:800;font-size:12px;text-align:center}
+/* 相手／自分の見出し行。1つの表にまとめてあるので、区切りはこの行で付ける */
+.mtx tr.mgrp td{background:var(--surface2);text-align:left;padding:0;
+border-right:0;border-bottom:1px solid var(--line)}
+.mgrplbl{position:sticky;left:0;display:inline-block;padding:5px 10px;
+font-size:11.5px;font-weight:800;letter-spacing:.08em;color:var(--ink2)}
 .mtx thead th{background:var(--surface2);color:var(--ink2);font-size:10.5px;font-weight:700}
 .mtx th.ty{color:#10121a;background:var(--tc);font-weight:800}
 .mtx td.ty{background:var(--tc);color:#10121a;font-weight:800;font-size:11px}
