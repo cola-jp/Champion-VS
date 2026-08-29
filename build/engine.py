@@ -322,6 +322,23 @@ def is_mega(name):
     return name in MEGA_NAMES
 
 
+# メガ形態名 -> その通常形態名。MEGA_NAMES と同じ照合で作るので、
+# ロトムのフォルム違いのような「同じ図鑑番号だがメガではない」ものは入らない。
+# 選出補助でメガ／非メガを切り替えるのに使う。
+MEGA_BASE = {}
+for _n in MEGA_NAMES:
+    _rest = _n[2:]
+    if _rest[-1:] in ('X', 'Y'):
+        _rest = _rest[:-1]
+    for _names in BY_DEX_NO.values():
+        if _n not in _names:
+            continue
+        for _o in _names:
+            if _o != _n and _plain_key(_o) == _rest:
+                MEGA_BASE[_n] = _o
+                break
+
+
 # リージョンフォームにメガを紐付ける例外。
 # フラエッテは図鑑に「フラエッテ(えいえん)」しか無く、メガフラエッテはその形態のメガ。
 # 一方ライチュウ(アローラ)やヤドラン(ガラル)は通常形態が別に居て、メガはそちらのものなので、

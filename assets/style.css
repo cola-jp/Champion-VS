@@ -272,6 +272,8 @@ border-radius:3px;vertical-align:1px}
 width:max-content;min-width:100%;border-top:1px solid var(--line)}
 .mtx th,.mtx td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
 padding:4px 7px;text-align:center}
+/* タイプの列は1文字表記なので詰める。18列ぶんの横幅がここで効く */
+.mtx th.ty,.mtx td.ty,.mtx td.ef{padding:4px 5px}
 .mtx thead th{background:var(--surface2);color:var(--ink2);font-size:10.5px;font-weight:700}
 .mtx th.ty{color:#10121a;background:var(--tc);font-weight:800}
 .mtx td.ty{background:var(--tc);color:#10121a;font-weight:800;font-size:11px}

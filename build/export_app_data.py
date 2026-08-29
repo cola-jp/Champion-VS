@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
-                    CONTACT_HALF, ABILITY_DISPLAY, SOUND,
+                    CONTACT_HALF, ABILITY_DISPLAY, SOUND, MEGA_BASE, is_mega,
                     VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
                     MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -63,8 +63,20 @@ def dex_rows():
     eff は**特性を含まない素の値**。特性による変化は rules.abilityTypeEffect を
     掛けて JS 側で出す（どの特性を効かせるかの判断は Python 側に残してある）。
     ab_list が特性の正しい一覧で、ab は既存の部分一致のために残している連結文字列。"""
+    # forms は「メガ／非メガの切り替え先」。同じ図鑑番号でも、ロトムのフォルム違いのような
+    # メガではないものは入らない（切り替えの相手ではない）。通常形態を先頭にした並び。
+    forms = {}
+    for mega, base in MEGA_BASE.items():
+        forms.setdefault(base, [base])
+        if mega not in forms[base]:
+            forms[base].append(mega)
+    chain = {}
+    for base, names in forms.items():
+        for n in names:
+            chain[n] = names
     return {name: dict(t1=d['t1'], t2=d['t2'], ab=d['ab'], ab_list=d['ab_list'],
                        base=d['base'], mega=name in MEGA_NAMES,
+                       forms=chain.get(name, []),
                        eff=type_effects((d['t1'], d['t2'])))
             for name, d in DEX.items()}
 
