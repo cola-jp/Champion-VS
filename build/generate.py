@@ -451,33 +451,62 @@ def build_threats(limit=None):
 
 # ---------------------------------------------------------------- ダメージ計算
 
-def type_weakness(types, ability):
-    """相手の弱点を (4倍以上, 2倍) に分けて返す。表示専用で、ダメージ計算には使わない。
+def _ability_type_mult(ability, atk):
+    """防御側の特性が、その攻撃タイプに対して掛ける倍率。特性の影響が無ければ 1.0。
 
-    **タイプごとに効く防御特性だけ反映する。** ふゆう・もらいび・ちょすい・どしょく（無効）、
+    **タイプごとに効く防御特性だけを見る。** ふゆう・もらいび・ちょすい・どしょく等（無効）、
     あついしぼう・たいねつ・すいほう（半減）、もふもふ（ほのおだけ2倍）。
     マルチスケイル・ハードロック・がんじょう・ばけのかわは**入れない** —
-    タイプに依らず全部の倍率を動かすので、入れると「弱点表」ではなくなる
-    （マルチスケイルを入れるとカイリューの弱点が消える）。
+    タイプに依らず全部の倍率を動かすので、入れると「相性」ではなくなる。
 
-    特性名は英語スラッグのことも日本語のこともあるので、ability_mod と同じく
-    両方のテーブルを同じ文字列に当てる。"""
+    特性名は英語スラッグのことも日本語のこともあるので、両方のテーブルを同じ文字列に当てる。
+    1つの特性が複数のテーブルに載ることは無いので、最初に一致したものを返せばよい。"""
     ab = ability or ''
+    for table in (IMMUNE_JA, IMMUNE_EN):
+        for name, typ in table.items():
+            if name in ab and typ == atk:
+                return 0.0
+    for table in (HALF_JA, HALF_EN):
+        for name, typs in table.items():
+            if name in ab and atk in typs:
+                return 0.5
+    for table in (DOUBLE_JA, DOUBLE_EN):
+        for name, typs in table.items():
+            if name in ab and atk in typs:
+                return 2.0
+    return 1.0
+
+
+def ability_type_effects():
+    """{特性名: {攻撃タイプ: 倍率}}。選出補助の相性表で JS 側が引くために書き出す。
+
+    JS には「掛け算」だけをさせて、**どの特性を相性に効かせるかの判断はここに残す**。
+    表そのものを JS に書き写すと、マルチスケイルを入れるかどうかの線引きが必ず食い違う。
+    日本語名だけで足りる（図鑑と party.txt の特性は日本語）。"""
+    out = {}
+    for name, typ in IMMUNE_JA.items():
+        out.setdefault(name, {})[typ] = 0.0
+    for name, typs in HALF_JA.items():
+        for t in typs:
+            out.setdefault(name, {})[t] = 0.5
+    for name, typs in DOUBLE_JA.items():
+        for t in typs:
+            out.setdefault(name, {})[t] = 2.0
+    return out
+
+
+def type_effects(types):
+    """そのタイプ構成が受ける、18タイプぶんの素の相性倍率。特性は含まない。
+    並びは TYPE_COLOR の順（rules.typeOrder と同じ）。"""
+    return [eff(atk, *types) for atk in TYPE_COLOR]
+
+
+def type_weakness(types, ability):
+    """相手の弱点を (4倍以上, 2倍) に分けて返す。表示専用で、ダメージ計算には使わない。
+    タイプ別に効く防御特性は反映する（線引きは _ability_type_mult のコメント参照）。"""
     x4, x2 = [], []
     for atk in TYPE_COLOR:
-        e = eff(atk, *types)
-        for table in (IMMUNE_JA, IMMUNE_EN):
-            for name, typ in table.items():
-                if name in ab and typ == atk:
-                    e = 0.0
-        for table in (HALF_JA, HALF_EN):
-            for name, typs in table.items():
-                if name in ab and atk in typs:
-                    e *= 0.5
-        for table in (DOUBLE_JA, DOUBLE_EN):
-            for name, typs in table.items():
-                if name in ab and atk in typs:
-                    e *= 2.0
+        e = eff(atk, *types) * _ability_type_mult(ability, atk)
         if e >= 4:
             x4.append(atk)
         elif e >= 2:

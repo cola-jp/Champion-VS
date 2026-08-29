@@ -30,7 +30,8 @@ from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
 import generate
 from generate import (build_threats, TYPE_COLOR, VERDICT_CLASS, ABILITY_JA,
                       ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES,
-                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS, type_weakness)
+                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS, type_weakness,
+                      type_effects, ability_type_effects)
 
 OUT_DIR = os.path.join(ROOT, 'appdata')
 
@@ -56,9 +57,15 @@ def threat_rows():
 
 
 def dex_rows():
-    """パーティ編集で使う図鑑。種族値・タイプ・特性・メガ形態かどうか。"""
-    return {name: dict(t1=d['t1'], t2=d['t2'], ab=d['ab'], base=d['base'],
-                       mega=name in MEGA_NAMES)
+    """パーティ編集と選出補助の相性表で使う図鑑。
+    種族値・タイプ・特性・メガ形態かどうか・18タイプぶんの素の相性倍率。
+
+    eff は**特性を含まない素の値**。特性による変化は rules.abilityTypeEffect を
+    掛けて JS 側で出す（どの特性を効かせるかの判断は Python 側に残してある）。
+    ab_list が特性の正しい一覧で、ab は既存の部分一致のために残している連結文字列。"""
+    return {name: dict(t1=d['t1'], t2=d['t2'], ab=d['ab'], ab_list=d['ab_list'],
+                       base=d['base'], mega=name in MEGA_NAMES,
+                       eff=type_effects((d['t1'], d['t2'])))
             for name, d in DEX.items()}
 
 
@@ -122,6 +129,10 @@ def rules():
         sharpnessAbilities=sorted(SHARPNESS_ABILITIES),
         multiHit=MULTI_HIT,
         typeColor=TYPE_COLOR,
+        # 相性表の列の並び。dex.eff の並びと必ず同じにすること
+        typeOrder=list(TYPE_COLOR),
+        # タイプ別に効く防御特性だけの表。JS はこれを掛けるだけにする
+        abilityTypeEffect=ability_type_effects(),
         verdictClass={k: v[0] for k, v in VERDICT_CLASS.items()},
         verdictColor={k: v[1] for k, v in VERDICT_CLASS.items()},
         verdictRank=VERDICT_RANK,

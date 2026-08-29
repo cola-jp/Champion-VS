@@ -156,7 +156,7 @@
       `<a class="top" href="#idx">↑</a></div>` +
       `<div class="wkrow">${UI.weakChips(threat, R.typeColor)}</div>` +
       `<div class="mvrow">${moveChips}</div>` +
-      `<table><thead><tr><th>味方</th><th>最大打点</th><th>ダメージ</th>` +
+      `<table class="dmg"><thead><tr><th>味方</th><th>最大打点</th><th>ダメージ</th>` +
       `<th>判定</th><th>%</th><th>被弾</th></tr></thead><tbody>${rows}</tbody></table></section>`;
   }
 

@@ -115,17 +115,20 @@ main{padding:10px var(--pad);gap:10px}
 .nm{font-size:18px}
 .stats{margin-left:0;flex:1 1 100%;font-size:12.5px}
 .top{position:absolute;right:12px}
-thead{display:none}
-table,tbody,tr,td{display:block;width:100%}
-tbody tr{padding:9px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:center}
-td{padding:0}
-.me{grid-column:1;grid-row:1;font-size:15px}
-.vdcell{grid-column:2;grid-row:1;justify-self:end}
-.hit{grid-column:1;grid-row:2;font-size:13px;white-space:normal}
-.pct{grid-column:2;grid-row:2;justify-self:end;font-weight:700;color:var(--ink)}
-.barcell{grid-column:1/-1;grid-row:3;width:auto}
-.trk{height:17px;min-width:0}
-.back{grid-column:1/-1;grid-row:4;white-space:normal}
+/* 狭い画面ではダメージ表の行をカード状に組み替える。
+   **必ず .dmg に限定すること。** 素の table/thead に掛けると、
+   選出補助の相性表まで組み替えられて列が全部潰れる（実際に潰した）。 */
+.dmg thead{display:none}
+.dmg,.dmg tbody,.dmg tr,.dmg td{display:block;width:100%}
+.dmg tbody tr{padding:9px 12px;display:grid;grid-template-columns:1fr auto;gap:5px 10px;align-items:center}
+.dmg td{padding:0}
+.dmg .me{grid-column:1;grid-row:1;font-size:15px}
+.dmg .vdcell{grid-column:2;grid-row:1;justify-self:end}
+.dmg .hit{grid-column:1;grid-row:2;font-size:13px;white-space:normal}
+.dmg .pct{grid-column:2;grid-row:2;justify-self:end;font-weight:700;color:var(--ink)}
+.dmg .barcell{grid-column:1/-1;grid-row:3;width:auto}
+.dmg .trk{height:17px;min-width:0}
+.dmg .back{grid-column:1/-1;grid-row:4;white-space:normal}
 .chead{position:relative}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
@@ -254,3 +257,47 @@ background:transparent;color:var(--tc);border:1px solid var(--tc)}
 /* 必ず急所に当たる技。数字が1.5倍になっている理由を出さないと読み違える */
 .crt{font-size:10px;font-weight:800;background:#4a2a33;color:#ffb3c1;padding:1px 5px;
 border-radius:3px;vertical-align:1px}
+
+/* ---------------------------------------------------------------- 相性・種族値の表 */
+/* Excel の「選出補助」シートから移した部分。列が多いので、表だけ横スクロールさせて
+   本文は横に伸ばさない。名前の列は左に貼り付けて、横に振っても何の行か分かるようにする。
+
+   **border-collapse は separate にすること。** collapse と position:sticky を併用すると
+   Chrome でセルの幅が 0 に潰れる（狭い画面で30列が全部消えた）。
+   罫線は右下だけ引いて、左上は表の枠で受ける。 */
+.mtxwrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+/* width:100% にすると狭い画面で30列を無理に押し込んで潰れる。
+   列の幅は中身なりにして、はみ出したぶんを .mtxwrap 側でスクロールさせる。 */
+.mtx{border-collapse:separate;border-spacing:0;font-size:12px;white-space:nowrap;
+width:max-content;min-width:100%;border-top:1px solid var(--line)}
+.mtx th,.mtx td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+padding:4px 7px;text-align:center}
+.mtx thead th{background:var(--surface2);color:var(--ink2);font-size:10.5px;font-weight:700}
+.mtx th.ty{color:#10121a;background:var(--tc);font-weight:800}
+.mtx td.ty{background:var(--tc);color:#10121a;font-weight:800;font-size:11px}
+.mtx td.ty.none{background:var(--surface)}
+.mtx .nmcol{position:sticky;left:0;z-index:2;background:var(--surface);text-align:left;
+font-weight:700;border-right:2px solid var(--line)}
+.mtx thead .nmcol{background:var(--surface2);z-index:3}
+.mtx .nmcol .rk{color:var(--ink3);font-size:10.5px;font-weight:800;margin-right:3px}
+.mtx td.ab{text-align:left;color:var(--ink3);font-size:10.5px}
+.mtx td.ab b{color:var(--ink);font-weight:800}
+.mtx td.ab u{color:var(--ink2);text-decoration-color:var(--rng);text-underline-offset:2px}
+.mtx td.bs{font-variant-numeric:tabular-nums}
+.mtx td.bs.b1{background:#2c5c3c;color:#dcf5e6;font-weight:800}
+.mtx td.bs.b2{background:#24422f;color:#cfe6d8}
+.mtx td.bs.b3{background:#26364a;color:#c3d6ea}
+.mtx td.bulk{color:var(--ink2);font-variant-numeric:tabular-nums}
+/* 倍率の塗り。数字を読まなくても分かることがこの表の存在意義なので、色は薄めない */
+.ef{font-weight:800;font-variant-numeric:tabular-nums}
+.ef.e4{background:#c62430;color:#fff}
+.ef.e2{background:#d98324;color:#241505}
+.ef.e1{color:var(--ink3);font-weight:600}
+.ef.eh{background:#2f4a63;color:#cfe2f3}
+.ef.e0{background:#4a4f5c;color:#e8ecf5}
+.wkrow .ef{padding:2px 9px;border-radius:4px;font-size:12px}
+.wkrow .wklbl u{text-decoration-color:var(--rng)}
+.megatg{background:var(--surface2);border:1px solid var(--line);color:var(--ink2);
+font-size:10px;font-weight:800;padding:1px 6px;border-radius:4px;margin-left:5px;
+cursor:pointer;font-family:inherit}
+.megatg[aria-pressed=true]{background:var(--rng);border-color:var(--rng);color:#151515}
