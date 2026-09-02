@@ -10,12 +10,16 @@
   <span id="tools" hidden style="display:contents">
     <input id="q" type="search" placeholder="相手の名前（ガブ / ミミ / ブリジュ…）"
       autocomplete="off" autocorrect="off" autocapitalize="off">
+    <!-- .tgs は「この画面の表示を切り替える」、.navs は「別の画面へ行く」。
+         見た目も置き場所も分けてある（同じ見た目だと押すまで結果が分からない） -->
     <span class="tgs">
-      <button class="tg" id="tM" aria-pressed="true">非メガも表示</button>
+      <button class="tg" id="tM" aria-pressed="false">非メガも表示</button>
       <button class="tg" id="tS" aria-pressed="false">SR設置済み</button>
     </span>
-    <a class="navlink" href="select.html">選出補助</a>
-    <a class="navlink" href="party.html">パーティー</a>
+    <span class="navs">
+      <a class="navlink" href="select.html">選出補助</a>
+      <a class="navlink" href="party.html">パーティー</a>
+    </span>
     <span class="count" id="cnt"></span>
   </span>
 </div></header>

@@ -109,7 +109,7 @@ h1{display:none}
 #q{min-width:0;width:100%;flex:1 1 100%;order:1}
 .tgs{order:2;display:flex;gap:6px;flex:1 1 auto}
 .tg{flex:1;text-align:center;padding:9px 6px}
-.count{order:3;margin-left:0}
+.count{order:4;margin-left:0}
 main{padding:10px var(--pad);gap:10px}
 .chead{padding:10px 12px 10px 13px;gap:7px}
 .nm{font-size:18px}
@@ -134,10 +134,21 @@ main{padding:10px var(--pad);gap:10px}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 
 /* ============================================================ 複数ページ化で追加した分 */
-.navlink{background:var(--surface2);border:1px solid var(--line);color:var(--ink2);
-padding:9px 12px;border-radius:7px;font-size:12.5px;text-decoration:none;white-space:nowrap}
+/* 画面遷移のリンク。表示の切り替え（.tg）と見分けが付くように、
+   角丸を丸くして枠だけの見た目にし、.navs で仕切り線の向こう側にまとめる。
+   同じ形・同じ色にすると「押すと表示が変わるのか、別の画面へ行くのか」が分からない。 */
+.navlink{background:transparent;border:1px solid var(--line);color:var(--ink2);
+padding:9px 13px;border-radius:999px;font-size:12.5px;text-decoration:none;white-space:nowrap}
 .navlink:hover,.navlink:focus{color:var(--ink);background:#2b3142;outline:none}
 .navlink.primary{background:var(--rng);border-color:var(--rng);color:#151515;font-weight:700}
+.navs{display:flex;gap:6px;align-items:center;padding-left:11px;
+border-left:1px solid var(--line);align-self:stretch}
+/* 狭い画面では仕切り線ではなく行を分けて、切り替えと画面遷移を上下に離す。
+   .navs の定義より後に書くこと（先に書くと上の行に負けて仕切り線が残る） */
+@media (max-width:760px){
+.navs{order:3;flex:1 1 100%;padding-left:0;border-left:0}
+.navs .navlink{flex:1;text-align:center;padding:9px 6px}
+}
 
 /* パーティの状態表示（どのパーティで計算しているか） */
 .pstat{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:9px 13px;
@@ -239,6 +250,19 @@ display:flex;justify-content:space-between;gap:8px}
 .grp{display:flex;gap:11px;align-items:flex-start;padding:10px 14px;background:var(--surface)}
 .grp>div{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0}
 .prow{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+
+/* 超有利（★）。先手1発、または返しが軽いまま1発の対面。
+   探しているのはたいていこれなので、色と★の両方で目立たせる。 */
+.star{color:var(--rng);margin-right:3px}
+.prow.sup .me{color:#ffd98a}
+.suptag{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#151515;
+background:var(--rng);border-radius:4px;padding:2px 6px;white-space:nowrap}
+
+/* カードの並びに付ける見出し。何の一覧なのかと、記号の意味をここで説明する */
+.seclbl{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;
+padding:2px 2px 0;font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--ink2)}
+.seclbl span{font-size:11.5px;font-weight:600;letter-spacing:0;color:var(--ink3)}
+
 @media(max-width:700px){
   .slots{grid-template-columns:repeat(2,1fr)}
   .grp{flex-direction:column;gap:6px}

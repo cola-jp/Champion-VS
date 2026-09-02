@@ -896,6 +896,12 @@ RECOVERY_MOVES = {'なまける', 'じこさいせい', 'はねやすめ', 'こ�
                   'ねむる', 'ねがいごと'}
 MAX_TURNS = 12
 
+# 「超有利」の線引き。処理できる中でもとくに安心して投げられる対面を選び出すためのもので、
+# **処理できるかどうかの判定そのものには一切関わらない**（表示に★を付けるだけ）。
+#   ・先手を取って1発 … 相手に行動させない
+#   ・1発だが後手 … 返しが最大乱数でもこの%以下なら、素早さを読み違えても崩れない
+SUPER_TAKE_PH = 40
+
 
 def _heal_parts(mon, moves_use=None):
     """(回復技1回ぶんの回復量, たべのこしの毎ターン回復量) を返す。
@@ -936,7 +942,11 @@ def _sustain_cycle(hp_heal, passive, incoming):
 
 
 def process_check(member, threat):
-    """この駒がこの相手を処理できるか。(できるか, 理由) を返す。
+    """この駒がこの相手を処理できるか。(できるか, 理由, 内訳) を返す。
+
+    内訳は表示用の材料（手数・先手かどうか・被弾%・超有利か）で、判定には使わない。
+    3つ目を足す前から `ok, why = ...` で受けている呼び出しがあるので、
+    受け取り方を変えるときは build/matchup.py も一緒に直すこと。
 
     回復技はそのターン攻撃できない。これを踏まえると相手の最適行動は二択になる:
       ・回復量 >= こちらの打点 なら、毎ターン回復すれば永久に落ちない → 処理不可
@@ -997,10 +1007,15 @@ def process_check(member, threat):
                    '後手だが耐えて1発' if my_turns == 1 else
                    f'打ち合い{my_turns}ターン')
             if best is None or my_turns < best[0]:
-                best = (my_turns, mv, why)
+                best = (my_turns, mv, why, first)
+    take_ph = back['ph']
     if best:
-        return True, f"{best[1]}（{best[2]}）"
-    return False, ''
+        # 超有利かどうかは「1発で倒せる」ことが前提。そのうえで先手を取っているか、
+        # 後手でも返しが軽いか。SUPER_TAKE_PH の意味は定義のところに書いてある
+        info = dict(turns=best[0], first=best[3], take_ph=take_ph,
+                    super=best[0] == 1 and (best[3] or take_ph <= SUPER_TAKE_PH))
+        return True, f"{best[1]}（{best[2]}）", info
+    return False, '', dict(turns=None, first=False, take_ph=take_ph, super=False)
 
 
 def choose_move(hits):

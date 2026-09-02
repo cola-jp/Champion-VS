@@ -532,7 +532,8 @@ const Engine = (() => {
     return n >= 2 ? n : null;            // n=1 は「毎ターン回復＝攻撃できない」
   }
 
-  /* この駒がこの相手を処理できるか。{ok, why, turns, move} を返す。
+  /* この駒がこの相手を処理できるか。{ok, why, turns, move, first, takePh, sup} を返す。
+     first / takePh / sup は表示用の材料（★を付けるため）で、判定には使わない。
 
      回復技はそのターン攻撃できない。これを踏まえると相手の最適行動は二択になる:
        ・回復量 >= こちらの打点 なら、毎ターン回復すれば永久に落ちない → 処理不可
@@ -581,15 +582,24 @@ const Engine = (() => {
       else ok = myTurns < theirTurns;
       if (ok && (best === null || myTurns < best.turns)) {
         best = {
-          turns: myTurns, move: mv,
+          turns: myTurns, move: mv, first,
           why: (first && myTurns === 1) ? '先手1発'
             : myTurns === 1 ? '後手だが耐えて1発'
               : `打ち合い${myTurns}ターン`,
         };
       }
     }
-    if (best) return { ok: true, move: best.move, why: best.why, turns: best.turns };
-    return { ok: false, move: null, why: '', turns: null };
+    const takePh = back.ph;
+    if (best) {
+      // 超有利かどうかは「1発で倒せる」ことが前提。そのうえで先手を取っているか、
+      // 後手でも返しが軽いか。境目は Python 側の SUPER_TAKE_PH
+      return {
+        ok: true, move: best.move, why: best.why, turns: best.turns,
+        first: best.first, takePh,
+        sup: best.turns === 1 && (best.first || takePh <= R.superTakePh),
+      };
+    }
+    return { ok: false, move: null, why: '', turns: null, first: false, takePh, sup: false };
   }
 
   // ------------------------------------------------------------ パーティの解析
@@ -834,6 +844,7 @@ const Engine = (() => {
         ['primaryDisguise', !!primary.disguise, row.primaryDisguise],
         ['primaryHits', primary.hits === undefined ? null : primary.hits, row.primaryHits],
         ['processed', processCheck(m, t).ok, row.processed],
+        ['processSuper', processCheck(m, t).sup, row.processSuper],
         ['boostMove', boosted ? boosted.move : null, row.boostMove],
         ['boostPh', boosted ? boosted.ph : null, row.boostPh],
         ['boostStages', boosted ? boosted.stages : null, row.boostStages],

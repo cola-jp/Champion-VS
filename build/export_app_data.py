@@ -31,7 +31,8 @@ import generate
 import partycode
 from generate import (build_threats, TYPE_COLOR, VERDICT_CLASS, ABILITY_JA,
                       ITEM_JA, MULTI_HIT, ABILITY_HANDLING, SKIN_ABILITIES,
-                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS, type_weakness,
+                      ITEM_DAMAGE, RECOVERY_MOVES, MAX_TURNS, SUPER_TAKE_PH,
+                      type_weakness,
                       type_effects, ability_type_effects)
 
 OUT_DIR = os.path.join(ROOT, 'appdata')
@@ -129,6 +130,8 @@ def rules():
         # 処理判定（generate.process_check）で使う。JS側で書き写さない
         recoveryMoves=sorted(RECOVERY_MOVES),
         maxTurns=MAX_TURNS,
+        # 選出補助で★を付ける境目。判定ではなく表示の線引き
+        superTakePh=SUPER_TAKE_PH,
         nonContactMoves=sorted(NON_CONTACT_MOVES),
         ohkoMoves=sorted(OHKO_MOVES),
         statusMoves=sorted(STATUS_MOVES),
@@ -180,6 +183,7 @@ def golden():
             hits_sr = [generate.my_hit(m, mv, t, hp_sr) for mv in m['moves']]
             primary_sr, _ = generate.choose_move(hits_sr)
             boosted = generate.boosted_hit(m, t)
+            proc_ok, _, proc_info = generate.process_check(m, t)
             rows.append(dict(
                 threat=ti, member=m['id'],
                 move=primary['move'], lo=primary['lo'], hi=primary['hi'],
@@ -193,7 +197,9 @@ def golden():
                 primaryDisguise=bool(primary.get('disguise')),
                 primaryHits=primary.get('hits'),
                 # 処理判定はJS側にも移植してあるので、期待値に入れて突き合わせる
-                processed=generate.process_check(m, t)[0],
+                processed=proc_ok,
+                # 超有利（選出補助の★）もJS側と突き合わせる
+                processSuper=proc_info['super'],
                 boostMove=boosted['move'] if boosted else None,
                 boostPh=boosted['ph'] if boosted else None,
                 boostStages=boosted['stages'] if boosted else None,

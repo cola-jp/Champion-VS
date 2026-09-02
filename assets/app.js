@@ -10,7 +10,10 @@
 (() => {
   const $ = id => document.getElementById(id);
   let THREATS = [], MEMBERS = [], R = null;
-  let showNonMega = true, srOn = false;
+  // 非メガの行は既定で隠す。対戦中に見たいのは実際に出す形態の数字で、
+  // 非メガ側は「メガる前にどうか」を確かめたいときだけ。index.html の
+  // aria-pressed="false" と揃えること（片方だけ変えるとボタンの見た目が嘘になる）
+  let showNonMega = false, srOn = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g,

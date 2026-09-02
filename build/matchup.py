@@ -93,10 +93,13 @@ def resolve(name, index):
 
 
 def verdict_for(member, rows, cache):
-    """(段階, 最短の技と理由, 通る行, 型比率の合計)。段階は 2=安定 1=条件付き 0=不可。"""
+    """(段階, 最短の技と理由, 通る行, 型比率の合計, 超有利か)。段階は 2=安定 1=条件付き 0=不可。
+
+    超有利は**全部の行が超有利のときだけ**立てる。1つの型にだけ強くても、
+    対戦前にはどの型か分からないので目印にならない。"""
     ok = [t for t in rows if cache_check(member, t, cache)[0]]
     if not ok:
-        return 0, None, [], 0
+        return 0, None, [], 0, False
     best = min((cache_check(member, t, cache) for t in ok), key=lambda x: x[2])
     seen, share = set(), 0
     for t in ok:
@@ -104,18 +107,18 @@ def verdict_for(member, rows, cache):
             continue
         seen.add(t['pattern'])
         share += t['share']
-    return (2 if len(ok) == len(rows) else 1), best, [row_key(t) for t in ok], share
+    sup = len(ok) == len(rows) and all(cache_check(member, t, cache)[3] for t in ok)
+    return (2 if len(ok) == len(rows) else 1), best, [row_key(t) for t in ok], share, sup
 
 
 def cache_check(member, threat, cache):
-    """(処理できるか, 理由, ターン数)。process_check は理由の文字列にターン数が入っている
-    ので、並べ替え用に手数だけ取り出しておく。"""
+    """(処理できるか, 理由, ターン数, 超有利か)。手数と超有利かどうかは
+    process_check が内訳として返してくる（文字列から読み取らないこと）。"""
     key = (member['id'], threat['rank'], threat['name'], threat['pattern'],
            threat['form'], threat['hp_full'], threat['protean'])
     if key not in cache:
-        ok, why = process_check(member, threat)
-        turns = 1 if ('1発' in why) else int(''.join(c for c in why if c.isdigit()) or 99)
-        cache[key] = (ok, why, turns)
+        ok, why, info = process_check(member, threat)
+        cache[key] = (ok, why, info['turns'] if info['turns'] else 99, info['super'])
     return cache[key]
 
 
@@ -223,9 +226,9 @@ def main():
                 f = form_of(g, use_mega)
                 if f is None:
                     continue
-                lvl, best, ok_keys, share = verdict_for(f, rows, cache)
+                lvl, best, ok_keys, share, sup = verdict_for(f, rows, cache)
                 if lvl:
-                    graded.append((lvl, share, f, best, ok_keys))
+                    graded.append((lvl, share, f, best, ok_keys, sup))
                 if g.get('plain'):
                     break
         graded.sort(key=lambda x: (-x[0], -x[1]))
@@ -233,9 +236,10 @@ def main():
             hit = [x for x in graded if x[0] == lvl]
             if not hit:
                 continue
-            for _l, share, f, best, ok_keys in hit:
+            for _l, share, f, best, ok_keys, sup in hit:
                 extra = f'  ［{" / ".join(ok_keys)} のみ・計{share}%］' if lvl == 1 else ''
-                print(f'   {tag}: {label(f)}（{best[1]}）{extra}')
+                # ★＝超有利（先手1発、または返しが軽いまま1発）。select.html と同じ線引き
+                print(f'   {tag}: {"★" if sup else " "}{label(f)}（{best[1]}）{extra}')
         if not graded:
             print('   処理不可: 対面から処理できる駒がありません')
         print()

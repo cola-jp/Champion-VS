@@ -325,8 +325,12 @@ def is_mega(name):
 # メガ形態名 -> その通常形態名。MEGA_NAMES と同じ照合で作るので、
 # ロトムのフォルム違いのような「同じ図鑑番号だがメガではない」ものは入らない。
 # 選出補助でメガ／非メガを切り替えるのに使う。
+# **sorted で回すこと。** MEGA_NAMES は集合なので、そのまま回すと実行のたびに
+# 順序が変わる（Python の文字列ハッシュはプロセスごとにランダム）。この dict の
+# 挿入順が dex.json の forms（リザードンの X / Y の並び）になるので、
+# ソートしないと書き出すたびに差分が出て、CI の「コミット済みと一致するか」が落ちる。
 MEGA_BASE = {}
-for _n in MEGA_NAMES:
+for _n in sorted(MEGA_NAMES):
     _rest = _n[2:]
     if _rest[-1:] in ('X', 'Y'):
         _rest = _rest[:-1]
