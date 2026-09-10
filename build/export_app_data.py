@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
-                    CONTACT_HALF, ABILITY_DISPLAY, SOUND, MEGA_BASE, is_mega,
+                    CONTACT_HALF, PHYSICAL_HALF, ABILITY_DISPLAY, SOUND, MEGA_BASE, is_mega,
                     VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
                     MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -118,6 +118,7 @@ def rules():
         doubleJa=[[k, list(v)] for k, v in DOUBLE_JA.items()],
         doubleEn=[[k, list(v)] for k, v in DOUBLE_EN.items()],
         contactHalf=list(CONTACT_HALF),
+        physicalHalf=list(PHYSICAL_HALF),
         abilityDisplay=ABILITY_DISPLAY,
         abilityJa=ABILITY_JA,
         abilityHandling=ABILITY_HANDLING,
@@ -229,13 +230,18 @@ def code_data():
         for key, names in added.items():
             print(f'  台帳に追記: {key} {len(names)}件 '
                   f'({"、".join(names[:3])}{" ほか" if len(names) > 3 else ""})')
-    for key in ('pokemon', 'moves', 'items', 'natures'):
-        if len(reg[key]) > 4000:
-            print(f'  警告: 台帳の {key} が {len(reg[key])} 件。コードが長くなっています')
+    for key, cap in partycode.CAPACITY.items():
+        used = len(reg[key])
+        if used > cap * 0.8:
+            print(f'  警告: 台帳の {key} が {used}/{cap} 件。'
+                  f'枠を超えると VERSION を上げる必要があります')
     return dict(version=partycode.VERSION, alphabet=partycode.ALPHABET,
                 pokemon=reg['pokemon'], moves=reg['moves'],
                 items=reg['items'], natures=reg['natures'],
                 evCount=partycode.EV_COUNT,
+                # 基数は**枠**であって登録件数ではない。JS 側で len() を使わないこと
+                capPokemon=partycode.CAP_POKEMON, capMoves=partycode.CAP_MOVES,
+                capItems=partycode.CAP_ITEMS, capNatures=partycode.CAP_NATURES,
                 maxParty=partycode.MAX_PARTY, maxItemLen=partycode.MAX_ITEM_LEN,
                 checkMod=partycode.CHECK_MOD,
                 maxPointsTotal=MAX_POINTS_TOTAL, maxPointsPerStat=MAX_POINTS_PER_STAT)

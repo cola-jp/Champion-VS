@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine import DEX, MOVES, USAGE, NAT_JA, resolve_form, stats
 from generate import (spread_variants, pick_nature, pick_form, translate_moves,
-                      ITEM_JA, ABILITY_JA)
+                      ITEM_JA, ABILITY_JA, _is_stone)
 
 STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
 
@@ -59,7 +59,7 @@ def block(name, pattern=None):
     st = stats(DEX[base]['base'], [sps[k] for k in STAT_KEYS], nature)
 
     if want_mega:
-        stones = [i for i in e['items'] if 'ite' in i['name'][-5:]]
+        stones = [i for i in e['items'] if _is_stone(i['name'])]
         if not stones:
             sys.exit(f'{name}: メガストーンが使用率データにありません。')
         item = ITEM_JA.get(stones[0]['name'], stones[0]['name'])
@@ -70,15 +70,16 @@ def block(name, pattern=None):
     # 通常形態に無い名前を書くと弾かれる。メガ形態の特性は計算側が差し替えるので、
     # メガを指定した場合ここに何を書いても打点には影響しない。
     #
-    # 使用率データの特性は英語名で、対応表（generate.ABILITY_JA）は
+    # M-C 以降の使用率データは特性も日本語なので、そのまま図鑑と突き合わせられる。
+    # 旧データ（英語名）は対応表（generate.ABILITY_JA）を通すが、この表は
     # 「表に出る＝最も使われている特性」しか持っていない。メガ運用のポケモンは
     # 通常形態の特性が表に出ないので、対応表に無いことがある（スターミーの natural-cure）。
-    # 訳せなかったときは図鑑の先頭を使い、確認できるように英語名を注記に残す。
+    # 訳せなかったときは図鑑の先頭を使い、確認できるように元の名前を注記に残す。
     ab_pool = DEX[base]['ab_list']
     ranked = sorted(e['abilities'], key=lambda x: -x['usage'])
     ability, note = '', ''
     for a in ranked:
-        ja = ABILITY_JA.get(a['name'])
+        ja = a['name'] if a['name'] in ab_pool else ABILITY_JA.get(a['name'])
         if ja and ja in ab_pool:
             ability = ja
             break
@@ -101,7 +102,8 @@ def block(name, pattern=None):
             break
 
     label = name if want_mega else base
-    return (f'# {label} {p}型 {norm:.0f}%（{e["month"]} の使用率データの最頻値）\n'
+    stamp = e.get('season') or e.get('month') or '不明'
+    return (f'# {label} {p}型 {norm:.0f}%（{stamp} の使用率データの最頻値）\n'
             + note
             + f'{base} @ {item}\n'
             f'{NAT_JA.get(nature, nature)} / {ability}\n'

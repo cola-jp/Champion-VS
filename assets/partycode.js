@@ -128,10 +128,13 @@ const PartyCode = (() => {
     if (ni < 0) throw new CodeError(`台帳に無い性格です: ${e.nature}`);
 
     const ii = C.items.indexOf(e.item);
-    const pairs = [[C.pokemon.length, pi], [C.natures.length, ni],
+    // 基数は**枠**（capPokemon など）であって台帳の件数ではない。
+    // 件数を使うと、台帳に1行足しただけで古いコードが別のパーティになる
+    // （Python 側 CAP_* のコメントに経緯がある）。**length を使わないこと。**
+    const pairs = [[C.capPokemon, pi], [C.capNatures, ni],
       // 特性は「その種が持つ数」を基数にする。1つしか無い種は0桁で済む
       [abList.length, ai],
-      [C.items.length + 1, ii < 0 ? C.items.length : ii]];
+      [C.capItems, ii < 0 ? C.capItems - 1 : ii]];
     if (ii < 0) {
       // 台帳に無い持ち物は生のまま入れる。長くなるが、名前を失うよりよい
       const chars = [...e.item];
@@ -150,7 +153,7 @@ const PartyCode = (() => {
     for (const mv of moves) {
       const mi = C.moves.indexOf(mv);
       if (mi < 0) throw new CodeError(`台帳に無い技です: ${mv}`);
-      pairs.push([C.moves.length, mi]);
+      pairs.push([C.capMoves, mi]);
     }
     return pairs;
   }
@@ -193,15 +196,15 @@ const PartyCode = (() => {
     if (count < 1 || count > C.maxParty) throw new CodeError('コードの体数が読めません');
     const blocks = [];
     for (let i = 0; i < count; i++) {
-      const name = pick(C.pokemon, r.take(C.pokemon.length), 'ポケモン');
-      const nature = pick(C.natures, r.take(C.natures.length), '性格');
+      const name = pick(C.pokemon, r.take(C.capPokemon), 'ポケモン');
+      const nature = pick(C.natures, r.take(C.capNatures), '性格');
       const d = dex[name];
       const abList = (d.ab_list && d.ab_list.length) ? d.ab_list : [''];
       const ability = abList[r.take(abList.length)];
-      const ii = r.take(C.items.length + 1);
+      const ii = r.take(C.capItems);
       let item;
-      if (ii < C.items.length) {
-        item = C.items[ii];
+      if (ii !== C.capItems - 1) {
+        item = pick(C.items, ii, '持ち物');
       } else {
         const n = r.take(C.maxItemLen + 1);
         item = '';
@@ -211,7 +214,7 @@ const PartyCode = (() => {
       const nmv = r.take(4) + 1;
       const moves = [];
       for (let k = 0; k < nmv; k++) {
-        moves.push(pick(C.moves, r.take(C.moves.length), '技'));
+        moves.push(pick(C.moves, r.take(C.capMoves), '技'));
       }
       const st = Engine.stats(d.base, ev, natEn[nature]);
       blocks.push(`${name} @ ${item}\n${nature} / ${ability}\n`

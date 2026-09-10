@@ -38,7 +38,27 @@ from engine import ROOT, DATA, DEX, MOVES, NAT_JA, MEGA_BASE, stats
 from generate import ITEM_JA, ITEM_NO_DAMAGE
 from party import MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, PartyError, _parse_party
 
-VERSION = 1
+# 2: 台帳の件数ではなく固定の枠（CAP_*）を基数にした版。
+#    1 で作ったコードは読めない（下の「基数は台帳の件数にしない」を参照）。
+VERSION = 2
+
+# 台帳の**枠**。基数はここから取り、実際の登録件数からは取らない。
+#
+# 以前は基数が `len(台帳)` だった。台帳は追記専用なので順番は保たれるが、
+# **件数が変わると基数が変わり、その後ろの桁が全部ずれる。**
+# レギュレーションM-C で図鑑が313→345体に増えたとき、古いコードの62%が
+# エラーにもならず**別のパーティとして復号された**（「ゴロンダ @ こだわりスカーフ」が
+# 「メタグロス @ いのちのたま」になった）。チェックディジットは整数としての
+# 往復しか見ていないので、基数の解釈違いは検出できない。
+#
+# **この値は増やさないこと。** 増やすと同じ壊れ方をする。
+# 枠に収まらなくなったら VERSION を上げて、古い版も読めるようにしてから広げる。
+# 枠を超えると sync_registry がエラーで止まる。
+CAP_POKEMON = 1024       # 現在345体。3倍近い余裕がある
+CAP_MOVES = 1024         # 現在385技
+CAP_ITEMS = 512          # 現在125個。メガストーンが増えるぶん多めに取ってある
+CAP_NATURES = 32         # 性格は25種で固定。増えない
+
 DICT_PATH = os.path.join(DATA, 'code_dict.json')
 JOYO_PATH = os.path.join(DATA, '常用漢字.txt')
 # 配布物（build/make_skill.py が作る claude.ai 用のスキル）では ASCII 名で入れている。
@@ -82,8 +102,14 @@ def known_items():
     （チルタリスなど）の石が抜けて生テキスト送りになり、コードが12文字も伸びていた。
     図鑑のメガ形態から「通常形態の名前＋ナイト」を作って足しておく。
     **これは符号表を埋めるための推測**で、ゲーム内の表記と違っていても実害は無い
-    （その持ち物は生テキストに落ちて、少し長くなるだけ）。"""
-    stones = {MEGA_BASE[m] + 'ナイト' for m in MEGA_BASE}
+    （その持ち物は生テキストに落ちて、少し長くなるだけ）。
+
+    X / Y / Z が付くメガは石の名前も末尾に付く（「ガブリアスナイトZ」）。
+    形態名の位置とは違うので、`メガ名+ナイト` ではなく `元の名前+ナイト+記号` にする。"""
+    stones = set()
+    for m in MEGA_BASE:
+        mark = m[-1] if m[-1:] in ('X', 'Y', 'Z') else ''
+        stones.add(MEGA_BASE[m] + 'ナイト' + mark)
     return sorted(set(ITEM_JA.values()) | {x for x in ITEM_NO_DAMAGE if x} | stones)
 
 
@@ -92,6 +118,11 @@ def load_registry():
         return {'version': VERSION, 'pokemon': [], 'moves': [], 'items': [], 'natures': []}
     with open(DICT_PATH, encoding='utf-8') as f:
         return json.load(f)
+
+
+# 台帳の各欄が入る枠。持ち物だけ、最後の1つを「台帳に無い持ち物」の目印に使うので1つ少ない
+CAPACITY = {'pokemon': CAP_POKEMON, 'moves': CAP_MOVES,
+            'items': CAP_ITEMS - 1, 'natures': CAP_NATURES}
 
 
 def sync_registry(write=True):
@@ -106,6 +137,13 @@ def sync_registry(write=True):
         if new:
             reg.setdefault(key, []).extend(new)
             added[key] = new
+        # 枠を超えたら止める。**黙って広げないこと。** 基数が変わると
+        # 既存のコードが別のパーティとして復号される（CAP_* のコメント参照）
+        if len(reg.get(key) or []) > CAPACITY[key]:
+            raise PartyError(
+                f'台帳の {key} が枠（{CAPACITY[key]}）を超えました。'
+                f'CAP_* を広げるだけでは既存のコードが壊れます。'
+                f'VERSION を上げて古い版も読めるようにしてから広げてください。')
     if added and write:
         with open(DICT_PATH, 'w', encoding='utf-8', newline='\n') as f:
             json.dump(reg, f, ensure_ascii=False, indent=1, sort_keys=True)
@@ -231,11 +269,14 @@ def _mon_pairs(p):
     if nat not in N_IDX:
         raise PartyError(f'台帳に無い性格です: {nat}')
 
-    pairs = [(len(P_LIST), P_IDX[sp]),
-             (len(N_LIST), N_IDX[nat]),
-             # 特性は「その種が持つ数」を基数にする。1つしか無い種は0桁で済む
+    # 基数は**枠**（CAP_*）であって登録件数ではない。件数を使うと、
+    # 台帳に1行足しただけで古いコードが別のパーティになる（CAP_* のコメント参照）
+    pairs = [(CAP_POKEMON, P_IDX[sp]),
+             (CAP_NATURES, N_IDX[nat]),
+             # 特性は「その種が持つ数」を基数にする。1つしか無い種は0桁で済む。
+             # ここは図鑑の行そのものなので、行を書き換えない限り変わらない
              (len(ab_list), ab_list.index(p['ability'])),
-             (len(I_LIST) + 1, I_IDX.get(p['item'], len(I_LIST)))]
+             (CAP_ITEMS, I_IDX.get(p['item'], CAP_ITEMS - 1))]
     if p['item'] not in I_IDX:
         # 台帳に無い持ち物は生のまま入れる。長くなるが、名前を失うよりよい
         if len(p['item']) > MAX_ITEM_LEN:
@@ -250,7 +291,7 @@ def _mon_pairs(p):
     for mv in moves:
         if mv not in M_IDX:
             raise PartyError(f'台帳に無い技です: {mv}')
-        pairs.append((len(M_LIST), M_IDX[mv]))
+        pairs.append((CAP_MOVES, M_IDX[mv]))
     return pairs
 
 
@@ -305,19 +346,19 @@ def decode(text):
         raise PartyError('コードの体数が読めません')
     blocks = []
     for _ in range(count):
-        sp = P_LIST[_check_idx(r.take(len(P_LIST)), P_LIST, 'ポケモン')]
-        nat = N_LIST[_check_idx(r.take(len(N_LIST)), N_LIST, '性格')]
+        sp = P_LIST[_check_idx(r.take(CAP_POKEMON), P_LIST, 'ポケモン')]
+        nat = N_LIST[_check_idx(r.take(CAP_NATURES), N_LIST, '性格')]
         ab_list = DEX[sp]['ab_list'] or ['']
         ability = ab_list[r.take(len(ab_list))]
-        ii = r.take(len(I_LIST) + 1)
-        if ii < len(I_LIST):
-            item = I_LIST[ii]
+        ii = r.take(CAP_ITEMS)
+        if ii != CAP_ITEMS - 1:
+            item = I_LIST[_check_idx(ii, I_LIST, '持ち物')]
         else:
             n = r.take(MAX_ITEM_LEN + 1)
             item = ''.join(chr(r.take(0x10000)) for _ in range(n))
         ev = ev_unrank(r.take(EV_TOTAL))
         nmv = r.take(4) + 1
-        moves = [M_LIST[_check_idx(r.take(len(M_LIST)), M_LIST, '技')] for _ in range(nmv)]
+        moves = [M_LIST[_check_idx(r.take(CAP_MOVES), M_LIST, '技')] for _ in range(nmv)]
         st = stats(DEX[sp]['base'], ev, NAT_JA_TO_EN[nat])
         blocks.append(f'{sp} @ {item}\n{nat} / {ability}\n'
                       + '-'.join(str(x) for x in st) + '\n' + ' / '.join(moves))

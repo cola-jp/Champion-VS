@@ -44,10 +44,9 @@ DATA = ['dex.csv', 'moves.csv', 'type_chart.csv',
 # zip に日本語のファイル名を入れると環境によっては化けて取り出せないので、
 # 配布物では ASCII 名にする。partycode.py がこちらの名前も見るようになっている。
 RENAME = {'常用漢字.txt': 'joyo.txt'}
-USAGE_SRC = '技使用率データ.JSON'
-# zip に日本語のファイル名を入れると環境によっては化けて取り出せないので、
-# 配布物では ASCII 名にする。engine.py がこちらの名前も見るようになっている。
-USAGE_OUT = 'usage.json'
+# 使用率データは M-C からリポジトリ側も usage.json になったので、リネームは要らない。
+# ただし配布物では 1行にまとめて縮めるので、単純コピーではなく詰め直す。
+USAGE_SRC = USAGE_OUT = 'usage.json'
 
 
 def main():
@@ -85,9 +84,10 @@ def main():
 
     total = sum(os.path.getsize(os.path.join(b, f))
                 for b, _d, fs in os.walk(OUT) for f in fs)
-    months = sorted({e.get('month') for e in usage if e.get('month')})
+    # M-C から取得元が変わり、月ではなくシーズン単位になった（'season'）。旧データは 'month'
+    stamps = sorted({e.get('season') or e.get('month') for e in usage} - {None})
     print(f'  展開後 {total / 1024:.0f} KB / zip {os.path.getsize(zip_path) / 1024:.0f} KB')
-    print(f'  使用率データ: {months[-1] if months else "不明"}（{len(usage)}件）')
+    print(f'  使用率データ: {stamps[-1] if stamps else "不明"}（{len(usage)}件）')
     print(f'組み立て完了: {zip_path}')
     print('  claude.ai の設定 > 機能 からスキルとして登録してください。')
 

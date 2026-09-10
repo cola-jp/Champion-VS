@@ -27,7 +27,7 @@ from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from engine import (MOVES, USAGE, BY_DEX_NO, NAT_JA, verdict, VERDICT_RANK, is_mega,
+from engine import (DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, verdict, VERDICT_RANK, is_mega,
                     verdict_plus_one)
 import party as party_mod
 from generate import (build_threats, build_members, my_hit, their_hit, choose_move,
@@ -39,8 +39,11 @@ KO_VERDICTS = ('確1', '乱1')
 
 
 def data_month():
-    months = {e.get('month') for e in USAGE if e.get('month')}
-    return sorted(months)[-1] if months else '不明'
+    """使用率データがいつのものか。M-C から取得元が変わって 'season' になった
+    （champs.pokedb.tokyo はシーズン単位で、月では出さない）。旧データは 'month'。"""
+    stamps = {e.get('season') or e.get('month') for e in USAGE}
+    stamps.discard(None)
+    return sorted(stamps)[-1] if stamps else '不明'
 
 
 def label(member):
@@ -95,7 +98,7 @@ def build_matrix(members, threats):
 
 def sec_intro(threats, month):
     ranks = max(t['rank'] for t in threats)
-    return f"""# 構築相談パック（ポケモンチャンピオンズ / レギュレーションM-B シングル）
+    return f"""# 構築相談パック（ポケモンチャンピオンズ / レギュレーションM-C シングル）
 
 対面ダメージ表 Champion-VS が計算した結果を、構築相談用に集計したもの。
 ダメージは計算済みなので、読み手は計算をやり直さなくてよい。
@@ -368,29 +371,47 @@ def sec_environment(threats):
 
 def sec_teammates(threats):
     """使用率データに入っている「同時採用されやすいポケモン」。
-    構築の相方を考えるときの材料。ダメージ計算とは無関係な生データ。"""
+    構築の相方を考えるときの材料。ダメージ計算とは無関係な生データ。
+
+    **M-C から同居率そのものが取れなくなった。** 新しい取得元は相方を
+    「多い順に並べた名前」でしか出さないので、順位を点数に均して足している
+    （1位=10点…10位=1点）。%ではないので、値そのものに意味は無い。
+    順番の比較にだけ使うこと。旧データ（%付き）はそのまま%で足す。"""
     agg = Counter()
     ranks = {t['rank'] for t in threats}
     seen = 0
+    pct = True                      # 同居率が入っているか（旧データ）
     for e in USAGE:
         if e['pick_rank'] not in ranks:
             continue
         seen += 1
-        for tm in e.get('teammates') or []:
-            names = BY_DEX_NO.get(tm['pokemon_id']) or []
-            base = next((n for n in names if not is_mega(n)), names[0] if names else None)
+        for i, tm in enumerate(e.get('teammates') or []):
+            if isinstance(tm, str):
+                pct = False
+                base = tm if tm in DEX else None
+                weight = max(10 - i, 1)
+            else:
+                names = BY_DEX_NO.get(tm['pokemon_id']) or []
+                base = next((n for n in names if not is_mega(n)),
+                            names[0] if names else None)
+                weight = tm['usage']
             if base:
-                agg[base] += tm['usage']
+                agg[base] += weight
     if not agg or not seen:
         return ''
+    unit = '平均同居率' if pct else 'スコア（順位を均した値）'
+    note = ('teammates は各ポケモン上位10件しか入っていないので、実際の値より低めに出る。'
+            if pct else
+            '新しい取得元は同居率を出さないので、順位を1位=10点…10位=1点に均して'
+            '足している。**%ではないので値そのものに意味は無い。** 順番だけを見ること。')
     out = ['## 環境で同時採用されやすいポケモン', '',
-           f'使用率データの teammates（そのポケモンを使った構築に同居した割合）を、',
-           f'上位{seen}体ぶん平均したもの。相方として何が組まれているか、',
+           f'使用率データの teammates（そのポケモンを使った構築に同居した相方）を、',
+           f'上位{seen}体ぶん集計したもの。相方として何が組まれているか、',
            'つまりどの並びを想定すべきかの材料になる。',
-           'teammates は各ポケモン上位10件しか入っていないので、実際の値より低めに出る。', '',
-           '| ポケモン | 平均同居率 |', '|---|---|']
+           note, '',
+           f'| ポケモン | {unit} |', '|---|---|']
     for name, w in agg.most_common(20):
-        out.append(f'| {name} | {w / seen:.1f}% |')
+        out.append(f'| {name} | {w / seen:.1f}{"%" if pct else ""} |')
     return '\n'.join(out) + '\n'
 
 

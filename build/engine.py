@@ -5,14 +5,14 @@
   data/dex.csv               ... 図鑑。種族値・タイプ・特性
   data/moves.csv             ... 技データ
   data/type_chart.csv        ... タイプ相性表
-  data/技使用率データ.JSON     ... 使用率・性格・努力値配分・持ち物・特性・技（英語名、月替わり）
-  data/move_names_en_ja.json ... 技使用率データ.JSON の英語技名 → 日本語技名の対応表
+  data/usage.json            ... 使用率・性格・能力ポイント配分・持ち物・特性・技（日本語、月替わり）
+  data/move_names_en_ja.json ... 旧データ（英語名）用の技名対応表。新ソースでは使わない
   data/abilities_ja.json     ... 特性名 → 効果の対応表（build/extract_abilities.py で生成）
 
 data/ポケモン図鑑.xlsx は移行元として残してあるが、コードはもう読まない。
 新しいポケモンや技は CSV を直接編集して足す（差分が見えるので取り込みミスに気づける）。
 
-レギュレーションM-B シングル / レベル50固定 / 個体値31 / 努力値は「能力ポイント」表記
+レギュレーションM-C シングル / レベル50固定 / 個体値31 / 努力値は「能力ポイント」表記
   1ポイント = 努力値8 / 1体あたり合計66ポイントまで / 1ステータス最大32ポイント
 """
 import csv
@@ -25,12 +25,10 @@ DATA = os.path.join(ROOT, 'data')
 DEX_CSV = os.path.join(DATA, 'dex.csv')
 MOVES_CSV = os.path.join(DATA, 'moves.csv')
 TYPE_CHART_CSV = os.path.join(DATA, 'type_chart.csv')
-JSON_PATH = os.path.join(DATA, '技使用率データ.JSON')
-# 配布物（build/make_skill.py が作る claude.ai 用のスキル）では ASCII 名で入れている。
-# zip に日本語のファイル名を入れると、環境によっては化けて取り出せない。
-# リポジトリ側の名前は取得元が分かるように日本語のままにしてあるので、両方見る。
-if not os.path.exists(JSON_PATH):
-    JSON_PATH = os.path.join(DATA, 'usage.json')
+# M-C から取得元が champs.pokedb.tokyo に変わり、名前が全部日本語で来るようになった。
+# ファイル名も ASCII に統一してある（zip に日本語名を入れると環境によっては化けて
+# 取り出せないため、配布物とリポジトリで名前を分ける必要がなくなった）。
+JSON_PATH = os.path.join(DATA, 'usage.json')
 MOVE_NAME_JSON_PATH = os.path.join(DATA, 'move_names_en_ja.json')
 ABILITY_JSON_PATH = os.path.join(DATA, 'abilities_ja.json')
 
@@ -57,12 +55,12 @@ for _r in _read_csv(TYPE_CHART_CSV):
         if _dt != 'attack' and _v != '':
             EFF[(_atk, _dt)] = float(_v)
 
-# 図鑑側の技名の誤りを読み込み時に直す。英語名をそのまま音写してしまっているもの。
-# 本来は data/moves.csv を直すのが筋だが、使用率データ側とも揃える必要があるのでここで吸収する。
-MOVE_NAME_FIX = {
-    'スピリットブレイク': 'ソウルクラッシュ',   # Spirit Break の正式和名はソウルクラッシュ
-    'うでずもう': 'アームハンマー',             # Hammer Arm の正式和名はアームハンマー
-}
+# 技名の誤りを読み込み時に直すための表。xlsx を直せなかった時代の名残で、いまは空。
+# スピリットブレイク→ソウルクラッシュ / うでずもう→アームハンマー の2件が入っていたが、
+# 一次データ（data/moves.csv と data/move_names_en_ja.json）を直したので不要になった。
+# **新しく誤りを見つけたらここではなく CSV を直すこと。** 名前は moves.csv と
+# move_names_en_ja.json の2箇所にあるので、両方直さないとビルドが止まる。
+MOVE_NAME_FIX = {}
 
 
 def fix_move_name(name):
@@ -311,7 +309,11 @@ for _names in BY_DEX_NO.values():
         if not _n.startswith('メガ'):
             continue
         _rest = _n[2:]
-        if _rest[-1:] in ('X', 'Y'):        # メガリザードンX / Y
+        # メガリザードンX / Y、メガガブリアスZ のように末尾に記号が付く形態。
+        # **Z を忘れないこと。** M-C で ガブリアス・ルカリオ・アブソル に
+        # 通常メガとZメガの2種類ができた。Z を剥がさないと is_mega() が false になり、
+        # メガ形態が普通のポケモン扱いで種族値もタイプも間違ったまま表に出る。
+        if _rest[-1:] in ('X', 'Y', 'Z'):
             _rest = _rest[:-1]
         if any(_plain_key(_o) == _rest for _o in _names if _o != _n):
             MEGA_NAMES.add(_n)
@@ -332,7 +334,7 @@ def is_mega(name):
 MEGA_BASE = {}
 for _n in sorted(MEGA_NAMES):
     _rest = _n[2:]
-    if _rest[-1:] in ('X', 'Y'):
+    if _rest[-1:] in ('X', 'Y', 'Z'):
         _rest = _rest[:-1]
     for _names in BY_DEX_NO.values():
         if _n not in _names:
@@ -353,10 +355,32 @@ REGION_FORM_MEGA = {'フラエッテ(えいえん)': 'メガフラエッテ'}
 
 def resolve_form(entry, want_mega=False):
     """JSONの1エントリから、図鑑上の正しいポケモン名を返す。
+
+    champs.pokedb.tokyo（M-C以降）は 'dex_name' に図鑑名がそのまま入っていて、
+    リージョンフォームも名前に含まれている（'ダイケンキ(ヒスイ)'）。
+    `pokemon_id` は全件 null、`region_form` / `mega_form` も全件空なので、
+    **図鑑番号からの逆引きは使えない。** dex_name があればそれを正とする。
+    図鑑に無い名前は PokemonNotFoundError（黙って別形態にしない）。
+
+    以下は旧ソース（pkmnchamps・英語スラッグ）用の経路。取得元が止まったので
+    もう動かないが、過去のデータで再現を取るために残してある。
     region_form を無視すると別形態の種族値で計算してしまうので必ずこれを通すこと。
     pokemon_id が図鑑に無ければ PokemonNotFoundError、region_form が指定されているのに
     対応する図鑑エントリが無ければ RegionFormError を投げる。どちらも黙って別形態の
     種族値で計算しないための安全弁（過去にヒスイダイケンキを通常種で計算したバグがある）。"""
+    if entry.get('dex_name'):
+        base = entry['dex_name']
+        if base not in DEX:
+            raise PokemonNotFoundError(base)
+        # メガは「メガ」+名前。X / Y / Z がある種は複数返る（並びは図鑑の順）
+        megas = [n for n in ('メガ' + base, 'メガ' + base + 'X',
+                             'メガ' + base + 'Y', 'メガ' + base + 'Z') if n in DEX]
+        if not megas and base in REGION_FORM_MEGA:
+            megas = [REGION_FORM_MEGA[base]]
+        if want_mega and megas:
+            return megas[0], megas
+        return base, megas
+
     names = BY_DEX_NO.get(entry['pokemon_id'], [])
     if not names:
         raise PokemonNotFoundError(str(entry['pokemon_id']))
@@ -467,7 +491,10 @@ HALF_EN = {'thick-fat': ('ほのお', 'こおり'), 'heatproof': ('ほのお',),
 DOUBLE_JA = {'もふもふ': ('ほのお',)}
 DOUBLE_EN = {'fluffy': ('ほのお',)}
 # 接触技を半減する防御特性
-CONTACT_HALF = ('もふもふ', 'fluffy')
+CONTACT_HALF = ('もふもふ', 'fluffy', 'はどうのぼうご', 'punching-glove')
+# 受ける物理技を半減する特性（防御を2倍にして計算するのと同じ）。
+# 物理か特殊かは技側の情報なので、呼び出し側から is_physical で渡す。
+PHYSICAL_HALF = ('ファーコート', 'fur-coat')
 # ability_mod が返す特性名を表示用の日本語に揃える
 ABILITY_DISPLAY = {
     'levitate': 'ふゆう', 'flash-fire': 'もらいび', 'water-absorb': 'ちょすい',
@@ -480,7 +507,7 @@ SOUND = {'ハイパーボイス', 'うたかたのアリア', 'ばくおんぱ',
 
 
 def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=False,
-                is_contact=False):
+                is_contact=False, is_physical=False):
     """防御側特性による倍率と、発動した特性名を返す。
     mold_breaker=True（かたやぶり）なら防御特性を全て無視する。
     ばけのかわは倍率ではなく「1回無効」なのでここでは 1.0 を返し、呼び出し側でターン数に加算する。
@@ -502,7 +529,9 @@ def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=F
             if name in ab and move_type in types:
                 return 2.0, 'もふもふ'
     if any(k in ab for k in CONTACT_HALF) and is_contact:
-        return 0.5, 'もふもふ'
+        return 0.5, 'はどうのぼうご' if 'はどうのぼうご' in ab else 'もふもふ'
+    if any(k in ab for k in PHYSICAL_HALF) and is_physical:
+        return 0.5, 'ファーコート'
     if ('マルチスケイル' in ab or 'multiscale' in ab) and hp_full:
         return 0.5, 'マルチスケイル'
     if ('ぼうおん' in ab or 'soundproof' in ab) and is_sound:

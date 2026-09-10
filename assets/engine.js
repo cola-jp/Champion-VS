@@ -95,7 +95,8 @@ const Engine = (() => {
 
   /* 防御側特性の倍率と、発動した特性名。かたやぶりなら全て無視する。
      テーブルは配列で持っていて、先頭から順に最初に一致したものを返す（Python と同じ）。 */
-  function abilityMod(ability, moveType, moldBreaker, hpFull, isSound, isContact) {
+  function abilityMod(ability, moveType, moldBreaker, hpFull, isSound, isContact,
+                      isPhysical) {
     const ab = ability || '';
     if (moldBreaker) return [1.0, ''];
     for (const table of [R.immuneJa, R.immuneEn]) {
@@ -118,7 +119,11 @@ const Engine = (() => {
         if (ab.includes(name) && types.includes(moveType)) return [2.0, 'もふもふ'];
       }
     }
-    if (isContact && R.contactHalf.some(k => ab.includes(k))) return [0.5, 'もふもふ'];
+    if (isContact && R.contactHalf.some(k => ab.includes(k))) {
+      return [0.5, ab.includes('はどうのぼうご') ? 'はどうのぼうご' : 'もふもふ'];
+    }
+    // ファーコート: 受ける物理技0.5倍（防御を2倍にして計算するのと同じ）
+    if (isPhysical && R.physicalHalf.some(k => ab.includes(k))) return [0.5, 'ファーコート'];
     if ((ab.includes('マルチスケイル') || ab.includes('multiscale')) && hpFull) {
       return [0.5, 'マルチスケイル'];
     }
@@ -280,7 +285,7 @@ const Engine = (() => {
     [atk, extra] = itemMods(member.item, m, moveType, t, atk, extra);
     let [am, abName] = abilityMod(threat.ability, moveType, member.mold_breaker,
                                   threat.hp_full !== false, SOUND_SET.has(move),
-                                  CONTACT.has(move));
+                                  CONTACT.has(move), m.cat === '物理');
     if (abName === 'ハードロック' && t < 2) am = 1.0;
     const disguise = (abName === 'ばけのかわ');
     if (disguise) am = 1.0;   // 倍率ではなく1回無効なので、ダメージは等倍のまま
@@ -441,7 +446,7 @@ const Engine = (() => {
       if (defenderAbilityOn) {
         let abName;
         [am, abName] = abilityMod(member.ability, moveType, mold, true,
-                                  SOUND_SET.has(mv), CONTACT.has(mv));
+                                  SOUND_SET.has(mv), CONTACT.has(mv), m.cat === '物理');
         if (abName === 'ハードロック' && t < 2) am = 1.0;
         if (abName === 'ばけのかわ' || abName === 'がんじょう') {
           am = 1.0;

@@ -34,6 +34,9 @@ NATURE_BOOSTS = {'lonely': 'A', 'brave': 'A', 'adamant': 'A', 'naughty': 'A',
                  'timid': 'S', 'hasty': 'S', 'jolly': 'S', 'naive': 'S',
                  'modest': 'C', 'mild': 'C', 'quiet': 'C', 'rash': 'C',
                  'calm': 'D', 'gentle': 'D', 'sassy': 'D', 'careful': 'D'}
+# 使用率データが日本語で来るようになったので、同じ表を日本語名でも引けるようにする。
+# **手で並べ直さないこと。** NAT_JA から作れば、性格名の対応表が1箇所で済む。
+NATURE_BOOSTS.update({NAT_JA[en]: up for en, up in list(NATURE_BOOSTS.items())})
 
 TYPE_COLOR = {'ノーマル': '#a8a878', 'ほのお': '#f08030', 'みず': '#6890f0', 'でんき': '#f8d030',
               'くさ': '#78c850', 'こおり': '#98d8d8', 'かくとう': '#c03028', 'どく': '#a040a0',
@@ -119,6 +122,36 @@ ABILITY_HANDLING = {
     'ふゆう': '反映済み: じめん無効',
     'マルチスケイル': '反映済み: 満タン時0.5倍。行を2つに分けている',
     'ばけのかわ': '反映済み: 等倍で出しターン+1として扱う',
+    'ハードロック': '反映済み: 効果抜群のときだけ0.75倍',
+    'フィルター': '反映済み: ハードロックと同じ0.75倍',
+    'そうしょく': '反映済み: くさ無効',
+    'ファーコート': '反映済み: 受ける物理技0.5倍（防御2倍と同じ）',
+    'はどうのぼうご': '反映済み: 受ける接触技0.5倍。接触判定は party.CONTACT_MOVES',
+
+    # --- フィールド系。M-C の最大の未実装 ---
+    # 対応タイプ1.3倍のほかに、グラススライダーの優先度+1・だいちのはどうの威力2倍・
+    # じしん半減・先制技無効まで付く。天候と同じ「場の状態」の枠組みが要るので、
+    # 倍率だけ入れると中途半端に外れる。**入れるときは4つまとめて入れること。**
+    'グラスメイカー': '未反映: グラスフィールド。くさ技1.3倍・グラススライダーの優先度+1など',
+    'エレキメイカー': '未反映: エレキフィールド。でんき技1.3倍・ねむり無効',
+    'サイコメイカー': '未反映: サイコフィールド。エスパー技1.3倍・先制技無効',
+
+    # --- 打点にも被弾にも影響しない（変化技・状態異常・素早さ・PPなど） ---
+    'いしあたま': '影響なし: 自分が受ける反動のみ。相手のHPは減らない',
+    'おみとおし': '影響なし: 相手の持ち物を見るだけ',
+    'こぼれダネ': '影響なし: 場に出たときグラスフィールドを張るが、フィールドは未計算',
+    'すなかき': '影響なし: すなあらし時の素早さのみ。天候は未計算',
+    'どんかん': '影響なし: メロメロ・ちょうはつ無効のみ',
+    'ねつこうかん': '影響なし: ほのおを受けたときのランク上昇。ランク補正は未計算',
+    'ねんちゃく': '影響なし: 持ち物を取られないだけ',
+    'わるいてぐせ': '影響なし: 相手の持ち物を盗むだけ。対面1回の計算では効かない',
+    'クイックドロウ': '影響なし: 30%で先行。確率なので計算に入れない',
+    'マイティチェンジ': '影響なし: フォルム変化の条件。図鑑側で(マイティ)を別エントリにしている',
+    'ポイズンヒール': '未反映: どく状態で毎ターン1/8回復。状態異常は未計算',
+    'マジックガード': '未反映: 技以外のダメージを受けない。ステルスロックの計算には効くが、'
+                      '相手のSRは元々計算に入れていない',
+    'スナイパー': '影響なし: 急所のダメージが上がるだけ。確率的な急所は計算に入れていない',
+    'もうか': '未反映: HP1/3以下でほのお技1.5倍。対面の初撃を見る表なので瀕死前提にしない',
 
     # --- 打点にも被弾にも影響しない（変化技・状態異常・素早さ・PPなど） ---
     'あまのじゃく': '影響なし: 能力変化の向きのみ',
@@ -254,47 +287,81 @@ def pick_nature(entry, pattern):
     return max(pool, key=lambda x: x['usage'])['name']
 
 
+def _is_stone(name):
+    """メガストーンかどうか。日本語（〜ナイト / 〜ナイトZ）と、
+    旧データの英語スラッグ（〜ite / 〜ite-x）の両方を見る。"""
+    return 'ite' in name[-5:] or 'ナイト' in name
+
+
+def _stone_mark(name):
+    """メガストーンの末尾の記号。'ガブリアスナイトZ' → 'Z'、'charizardite-y' → 'Y'、無印は ''。
+
+    **石の名前は種族名と綴りが違うことがある**（リザードン → リザードナイト）ので、
+    どのメガ形態に対応する石かは記号でしか照合できない。名前の前方一致は使わないこと。"""
+    if name[-1:] in ('X', 'Y', 'Z'):
+        return name[-1]
+    if name[-2:].lower() in ('-x', '-y', '-z'):
+        return name[-1].upper()
+    return ''
+
+
+def _mega_mark(name):
+    """メガ形態名の末尾の記号。'メガガブリアスZ' → 'Z'、'メガボーマンダ' → ''。"""
+    return name[-1] if name[-1:] in ('X', 'Y', 'Z') else ''
+
+
 def mega_stone_usage(entry):
-    return sum(i['usage'] for i in entry['items'] if 'ite' in i['name'][-5:])
+    return sum(i['usage'] for i in entry['items'] if _is_stone(i['name']))
 
 
 def pick_form(entry):
     """図鑑上の正しい形態名を返す。
-    リージョンフォーム（region_form）を最優先で解決してから、メガストーンの採用率で
-    メガ形態にするか決める。region_form を見落とすとヒスイダイケンキが通常ダイケンキの
-    種族値で計算される、といった事故になる。"""
+    リージョンフォームを最優先で解決してから、メガストーンの採用率で
+    メガ形態にするか決める。形態を見落とすとヒスイダイケンキが通常ダイケンキの
+    種族値で計算される、といった事故になる。
+
+    メガが複数ある種（リザードンの X / Y、ガブリアス・ルカリオ・アブソルの
+    通常メガ と Zメガ）は、**採用率が最も高い石の記号**で選ぶ。"""
     base, megas = resolve_form(entry)
-    stones = {i['name']: i['usage'] for i in entry['items'] if 'ite' in i['name'][-5:]}
+    stones = {i['name']: i['usage'] for i in entry['items'] if _is_stone(i['name'])}
     if sum(stones.values()) >= 50 and megas:
-        if len(megas) > 1:
-            xs = [k for k in stones if k.endswith('-x')]
-            ys = [k for k in stones if k.endswith('-y')]
-            if xs and ys:
-                return megas[0] if stones[xs[0]] >= stones[ys[0]] else megas[1]
+        if len(megas) > 1 and stones:
+            mark = _stone_mark(max(stones, key=lambda k: stones[k]))
+            for m in megas:
+                if _mega_mark(m) == mark:
+                    return m
         return megas[0]
     return base
 
 
 def translate_moves(entry, display_name, missing_moves, translation_warnings):
-    """entry['moves']（英語名+採用率）を「日本語技名 (採用率%)」のリストに変換する。
-    対応表 data/move_names_en_ja.json が一次情報で、無ければ警告して英語名のまま残す。
-    黙って技を落とすと、その技を計算に使わないぶん被弾が過小評価される。
-    翻訳はできたが技データ（MOVES）に無い日本語名は missing_moves に集めてビルドを止める。
+    """entry['moves'] を「日本語技名 (採用率%)」のリストに変換する。
 
-    以前は旧使用率シートの「同じ並び順」を最後の砦にしていたが、月が変わると技の順番が
-    変わるので別の技名を拾いかねない。当てにならない上に実際に一度も使われていなかったため、
-    CSV移行にあわせて外した。"""
+    M-C 以降の使用率データは**技名が最初から日本語**なので、その場合は翻訳を挟まない。
+    対応表を通すと、対応表に無い新技（グラススライダーなど）が警告になってしまう。
+    技データ（MOVES）に無い名前は missing_moves に集めてビルドを止める。
+
+    旧データ（英語スラッグ）は data/move_names_en_ja.json が一次情報で、
+    無ければ警告して英語名のまま残す。黙って技を落とすと、その技を計算に
+    使わないぶん被弾が過小評価される。"""
     out = []
     for mv in entry['moves']:
-        name_en = mv['name']
-        ja = MOVE_NAME_EN_JA.get(name_en)
-        if not ja:
-            translation_warnings.add(name_en)
-            ja = name_en
+        name = mv['name']
+        if name in MOVES:
+            ja = name                       # 日本語データ。そのまま通す
+        elif not name.isascii():
+            # 日本語なのに技データに無い＝そのシーズンで増えた技。moves.csv に足す
+            missing_moves.add(name)
+            ja = name
         else:
-            ja = fix_move_name(ja)
-            if ja not in MOVES:
-                missing_moves.add(ja)
+            ja = MOVE_NAME_EN_JA.get(name)
+            if not ja:
+                translation_warnings.add(name)
+                ja = name
+            else:
+                ja = fix_move_name(ja)
+                if ja not in MOVES:
+                    missing_moves.add(ja)
         out.append(f'{ja} ({mv["usage"]:.1f}%)')
     return out
 
@@ -332,8 +399,9 @@ def check_abilities(rows):
     for r in rows:
         item = r['item'] or ''
         # メガストーンはメガシンカの引き金であってダメージ補正は無い。
-        # 「リザードナイトY」のように末尾にX/Yが付くものがあるので、そこは外して見る。
-        stone = item[:-1] if item[-1:] in ('X', 'Y') else item
+        # 「リザードナイトY」「ガブリアスナイトZ」のように末尾に記号が付くものがあるので、
+        # そこは外して見る（**Z を忘れると M-C のZメガの石が毎回警告に出る**）。
+        stone = item[:-1] if item[-1:] in ('X', 'Y', 'Z') else item
         if item in ITEM_DAMAGE or item in ITEM_NO_DAMAGE or stone.endswith('ナイト'):
             continue
         unknown_items.setdefault(item, set()).add(r['name'])
@@ -379,7 +447,8 @@ def build_threats(limit=None):
         dex = DEX[name]
         stone = mega_stone_usage(entry)
         base_name, _ = resolve_form(entry)
-        scarf = sum(i['usage'] for i in entry['items'] if i['name'] == 'choice-scarf')
+        scarf = sum(i['usage'] for i in entry['items']
+                    if i['name'] in ('こだわりスカーフ', 'choice-scarf'))
 
         for pattern, raw, sps, norm in spread_variants(entry):
             d, display_name, form_note = dex, name, ''
@@ -564,7 +633,21 @@ ITEM_NO_DAMAGE = {
     'せんせいのツメ', 'ひかりのこな', 'でんきだま',
     # メガストーンは「ナイト」で終わる名前で除外されるので個別には並べない
     # （ITEM_JA に日本語名を入れてあるものはそちらで拾われる）。
-    'shuca-berry',   # ヤスウのみ。じめん技を1回半減するが、条件付きなので入れない
+
+    # --- M-C で環境に入った分 ---
+    'ゴツゴツメット',      # 接触されたとき相手のHPを削る。こちらの被弾量は変わらない
+    'だっしゅつボタン',    # 被弾後に強制交代。対面1回の数値は変わらない
+    'ながねぎ',            # ネギガナイト専用。急所率up。確率的な急所は計算に入れていない
+    'フォーカスレンズ',    # 後攻時の命中up。ダメージは変わらない
+    'グランドコート',      # フィールドの延長。フィールド自体が未実装
+    'サイコシード',        # サイコフィールド下でBup。ランク補正もフィールドも未計算
+    'エレキシード',        # エレキフィールド下でBup。同上
+    # ふうせん: 浮いている間じめん技が無効だが、**一度でも攻撃を受けると割れる**。
+    # 対面の初撃だけを見る表なので「無効」と出すと、2発目以降で嘘になる。
+    # きあいのタスキと同じ理由で入れていない。
+    'ふうせん',
+    # シュカのみ: 効果抜群のじめん技を1回だけ半減。1回限りなので入れない（上と同じ理由）。
+    'シュカのみ', 'shuca-berry',
 }
 
 
@@ -680,7 +763,8 @@ def my_hit(member, move, threat, hp_eff=None):
     am, ab_name = ability_mod(threat['ability'], move_type, member['mold_breaker'],
                               hp_full=(threat['hp_full'] is not False),
                               is_sound=(move in SOUND),
-                              is_contact=(move in CONTACT_MOVES))
+                              is_contact=(move in CONTACT_MOVES),
+                              is_physical=(m['cat'] == '物理'))
     if ab_name == 'ハードロック' and t < 2:
         am = 1.0
     disguise = (ab_name == 'ばけのかわ')
@@ -826,7 +910,8 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         if defender_ability_on:
             am, ab_name = ability_mod(member.get('ability'), move_type, mold,
                                       hp_full=True, is_sound=(mv in SOUND),
-                                      is_contact=(mv in CONTACT_MOVES))
+                                      is_contact=(mv in CONTACT_MOVES),
+                                      is_physical=(m['cat'] == '物理'))
             if ab_name == 'ハードロック' and t < 2:
                 am = 1.0
             if ab_name in ('ばけのかわ', 'がんじょう'):
@@ -1059,13 +1144,15 @@ def build_members(party=None):
     return out
 
 
+# ゲーム内のステータス画面と突き合わせた実数値。**メガ側はメガ後の値**で、
+# ゲーム内の表示（メガ前）とは違う。ここが自動検証の基準になる。
 EXPECTED = {
-    'ギャラドス': {'メガ': [171, 207, 130, 81, 150, 146], '非メガ': [171, 177, 100, 72, 120, 146]},
-    'キラフロル': {'': [159, 67, 111, 182, 101, 151]},
-    'エルレイド': {'': [169, 194, 87, 76, 135, 106]},
-    'カバルドン': {'': [215, 132, 154, 79, 124, 67]},
-    'ドリュウズ': {'スカーフ': [187, 205, 80, 63, 85, 140]},
-    'チルタリス': {'メガ': [181, 117, 130, 178, 125, 103], '非メガ': [181, 81, 110, 134, 125, 103]},
+    'カイリュー': {'': [168, 186, 115, 108, 120, 145]},
+    'メガニウム': {'メガ': [186, 100, 135, 214, 135, 103], '非メガ': [186, 91, 120, 148, 120, 103]},
+    'カバルドン': {'': [215, 132, 187, 79, 94, 67]},
+    'ブリジュラス': {'': [197, 112, 152, 145, 128, 105]},
+    'イダイトウ♂': {'スカーフ': [197, 164, 85, 90, 95, 143]},
+    'キラフロル': {'メガ': [160, 99, 125, 202, 116, 168], '非メガ': [160, 67, 110, 182, 101, 151]},
 }
 
 
@@ -1104,6 +1191,29 @@ def verify_party_code():
     if got != want:
         raise SystemExit('文字列コードの往復でパーティが変わりました。\n'
                          f'  元: {want}\n  戻り: {got}')
+
+    # **来シーズン台帳が増えても同じパーティに戻るか。**
+    # 以前は基数が台帳の件数だったので、1行足すだけで古いコードの6割が
+    # エラーにもならず別のパーティとして復号された。基数を固定枠にして直したが、
+    # うっかり len() に戻すと同じ壊れ方をするので、ここで毎回確かめる。
+    saved = {k: list(partycode.REG[k]) for k in ('pokemon', 'moves', 'items')}
+    try:
+        for key, idx in (('pokemon', partycode.P_IDX), ('moves', partycode.M_IDX),
+                         ('items', partycode.I_IDX)):
+            partycode.REG[key].extend(f'＿仮{key}{i}' for i in range(5))
+            idx.clear()
+            idx.update({n: i for i, n in enumerate(partycode.REG[key])})
+        if _parse_party_text(partycode.decode(code)) != want:
+            raise SystemExit(
+                '台帳に追記すると既存の文字列コードが別のパーティになります。\n'
+                '  基数に len(台帳) を使っていないか確認してください'
+                '（build/partycode.py の CAP_* を使うこと）。')
+    finally:
+        for key, idx in (('pokemon', partycode.P_IDX), ('moves', partycode.M_IDX),
+                         ('items', partycode.I_IDX)):
+            partycode.REG[key][:] = saved[key]
+            idx.clear()
+            idx.update({n: i for i, n in enumerate(saved[key])})
     return code
 
 
