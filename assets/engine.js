@@ -269,6 +269,61 @@ const Engine = (() => {
     return [moveType, power, atk, extra, stab, flags];
   }
 
+  // ------------------------------------------------------------ フィールド
+  /* フィールドは「場の状態」で、張った側だけでなく**両者に効く**。
+     どの特性がどれを張るか・どの技がどう変わるかの判断は Python 側にあり、
+     ここは rules から受け取って掛けるだけ（abilityTypeEffect と同じ分担）。 */
+
+  function terrainOf(...mons) {
+    for (const mon of mons) {
+      if (!mon) continue;
+      const ab = mon.ability || '';
+      for (const [k, v] of Object.entries(R.terrainMakers)) {
+        if (ab.includes(k)) return v;
+      }
+    }
+    return null;
+  }
+
+  /* 接地しているか。フィールドは地上のポケモンにしか効かない。 */
+  function isGrounded(types, ability, item) {
+    if ((types || []).includes('ひこう')) return false;
+    const ab = ability || '';
+    if (ab.includes('ふゆう') || ab.includes('levitate')) return false;
+    return !(item || '').includes('ふうせん');
+  }
+
+  function terrainBlocksPriority(terrain, mon) {
+    return terrain === 'サイコ' && isGrounded(mon.types, mon.ability, mon.item);
+  }
+
+  /* [技タイプ, 威力, その他補正, 優先度] を返す。Python の terrain_mods と同じ順序で掛ける。 */
+  function terrainMods(terrain, move, moveType, power, extra, pri, atkGrounded, defGrounded) {
+    if (!terrain) return [moveType, power, extra, pri];
+    const spec = R.terrainMoves[move];
+    if (spec && (spec.any || spec.terrain === terrain)) {
+      const ok = spec.ground === 'self' ? atkGrounded : defGrounded;
+      if (ok) {
+        if (spec.retype) moveType = R.terrainType[terrain];
+        if (spec.power) power = spec.power;
+        if (spec.mult) extra *= spec.mult;
+        pri += spec.pri || 0;
+      }
+    }
+    if (atkGrounded && moveType === R.terrainType[terrain]) extra *= R.terrainBoost;
+    if (defGrounded) {
+      if (terrain === 'グラス' && R.grassHalved.includes(move)) extra *= 0.5;
+      else if (terrain === 'ミスト' && moveType === 'ドラゴン') extra *= 0.5;
+    }
+    return [moveType, power, extra, pri];
+  }
+
+  /* タイプが変わると一致補正もやり直しになる（だいちのはどう） */
+  function restab(ability, moveType, types) {
+    if ((ability || '').includes('てきおうりょく') && types.includes(moveType)) return 2.0;
+    return types.includes(moveType) ? 1.5 : 1.0;
+  }
+
   function myHit(member, move, threat, hpEff) {
     if (STATUS.has(move)) return null;
     if (OHKO.has(move)) return { move, ohko: true, acc: MOVES[move].acc };
@@ -281,6 +336,16 @@ const Engine = (() => {
     // eslint-disable-next-line prefer-const
     let [moveType, power, atk, extra, stab, flags] =
       offensiveMods(member.ability, move, m, member.types, atk0, protean, threat.ability);
+    // フィールドは対面の属性。両者の特性から決まり、張った側に関係なく双方に効く
+    const terrain = terrainOf(member, threat);
+    let pri = m.pri || 0;
+    if (terrain) {
+      [moveType, power, extra, pri] = terrainMods(
+        terrain, move, moveType, power, extra, pri,
+        isGrounded(member.types, member.ability, member.item),
+        isGrounded(threat.types, threat.ability, threat.item));
+      if (!protean) stab = restab(member.ability, moveType, member.types);
+    }
     const t = moveEff(move, moveType, threat.types[0], threat.types[1]);
     [atk, extra] = itemMods(member.item, m, moveType, t, atk, extra);
     let [am, abName] = abilityMod(threat.ability, moveType, member.mold_breaker,
@@ -329,7 +394,11 @@ const Engine = (() => {
     if (flags.parentalBond) res.hits = '2回(おやこあい)';
     if (sturdy) res.sturdy = true;
     if (crit) res.crit = true;
-    if (m.pri) res.pri = m.pri;
+    // 優先度はフィールドで変わる（グラススライダー）。素の m.pri ではなく調整後を返す。
+    // サイコフィールドは接地した相手への先制技を止めるので、優先度そのものを消す
+    if (terrainBlocksPriority(terrain, threat) && pri > 0) { res.pri_blocked = true; pri = 0; }
+    if (pri) res.pri = pri;
+    if (terrain) res.terrain = terrain;
     if (am !== 1.0 && abName) { res.ab_name = abName; res.ab_mult = am; }
     const acc = m.acc && Math.min(100.0, m.acc * flags.accMult);
     if (acc && acc < 100) res.acc = pyRound(acc);
@@ -426,16 +495,27 @@ const Engine = (() => {
   function theirHitScan(threat, member, ability, mold, defenderAbilityOn) {
     const main = [], rare = [];
     let defenderSturdy = false;
+    const terrain = terrainOf(threat, member);
     for (const entry of threat.moves.slice(0, 8)) {
       const mv = entry.name, usage = entry.usage;
       const m = MOVES[mv];
       if (!m || !m.power) continue;
 
       const atk0 = m.cat === '物理' ? threat.st[1] : threat.st[3];
-      // eslint-disable-next-line prefer-const
       let [moveType, power, atk, extra, stab, flags] =
         offensiveMods(ability, mv, m, threat.types, atk0, threat.protean,
                       defenderAbilityOn ? member.ability : '');
+
+      // 打点側（myHit）と同じフィールド補正を必ず通す。
+      // 片方だけに書くと、相手のワイドフォースが威力80のままになる
+      let pri = m.pri || 0;
+      if (terrain) {
+        [moveType, power, extra, pri] = terrainMods(
+          terrain, mv, moveType, power, extra, pri,
+          isGrounded(threat.types, threat.ability, threat.item),
+          isGrounded(member.types, member.ability, member.item));
+        if (!threat.protean) stab = restab(ability, moveType, threat.types);
+      }
 
       const t = moveEff(mv, moveType, member.types[0], member.types[1]);
       [atk, extra] = itemMods(threat.item, m, moveType, t, atk, extra);
@@ -470,7 +550,10 @@ const Engine = (() => {
       if (m.multi) cand.hits = m.multi.label;
       if (flags.parentalBond) cand.hits = '2回(おやこあい)';
       if (m.crit) cand.crit = true;
-      if (m.pri) cand.pri = m.pri;
+      // サイコフィールドは接地したこちらへの先制技を止める
+      if (terrainBlocksPriority(terrain, member) && pri > 0) { cand.pri_blocked = true; pri = 0; }
+      if (pri) cand.pri = pri;
+      if (terrain) cand.terrain = terrain;
       (usage > R.rareMoveThreshold ? main : rare).push(cand);
     }
     const pool = main.length ? main : rare;
@@ -505,14 +588,18 @@ const Engine = (() => {
 
   /* [回復技1回ぶんの回復量, たべのこしの毎ターン回復量]。
      回復技はそのターン攻撃できない。たべのこしはターンを消費しない。 */
-  function healParts(mon, movesUse) {
+  function healParts(mon, movesUse, terrain) {
     const hp = mon.st[0];
     const recovery = new Set(R.recoveryMoves);
     const names = movesUse
       ? movesUse.filter(e => e.usage > R.rareMoveThreshold).map(e => e.name)
       : (mon.moves || []);
     const moveHeal = names.some(n => recovery.has(n)) ? Math.floor(hp / 2) : 0;
-    const passive = (mon.item || '').includes('たべのこし') ? Math.floor(hp / 16) : 0;
+    let passive = (mon.item || '').includes('たべのこし') ? Math.floor(hp / 16) : 0;
+    // グラスフィールドは接地しているポケモンを毎ターン1/16回復する（たべのこしと同じ枠）
+    if (terrain === 'グラス' && isGrounded(mon.types, mon.ability, mon.item)) {
+      passive += Math.floor(hp / 16);
+    }
     return [moveHeal, passive];
   }
 
@@ -548,8 +635,10 @@ const Engine = (() => {
     const theirDmg = back.hi;                    // 相手は最高乱数
     const theirPri = back.pri || 0;
     const myHp = member.st[0], theirHp = threat.st[0];
-    const [myHeal, myPass] = healParts(member);
-    const [theirHeal, theirPass] = healParts(threat, threat.moves);
+    // グラスフィールドは両者を回復させる。**片方だけに渡さないこと。**
+    const terrain = terrainOf(member, threat);
+    const [myHeal, myPass] = healParts(member, undefined, terrain);
+    const [theirHeal, theirPass] = healParts(threat, threat.moves, terrain);
 
     // 2発目以降は相手が満タンではない。マルチスケイル・がんじょうは初撃にしか効かない
     const threatHurt = Object.assign({}, threat, { hp_full: false });
@@ -850,6 +939,9 @@ const Engine = (() => {
         ['primaryHits', primary.hits === undefined ? null : primary.hits, row.primaryHits],
         ['processed', processCheck(m, t).ok, row.processed],
         ['processSuper', processCheck(m, t).sup, row.processSuper],
+        ['primaryPri', primary.pri === undefined ? null : primary.pri, row.primaryPri],
+        ['backPri', back.pri === undefined ? null : back.pri, row.backPri],
+        ['terrain', primary.terrain === undefined ? null : primary.terrain, row.terrain],
         ['boostMove', boosted ? boosted.move : null, row.boostMove],
         ['boostPh', boosted ? boosted.ph : null, row.boostPh],
         ['boostStages', boosted ? boosted.stages : null, row.boostStages],
@@ -868,6 +960,7 @@ const Engine = (() => {
   return {
     load, stats, statValue, eff, abilityMod, damage, verdict, srDamage,
     myHit, boostedHit, theirHit, chooseMove, processCheck,
+    terrainOf, isGrounded,
     parseParty, formatParty, selfTest, pyRound, PartyError, pointsFromStats,
     get dex() { return DEX; },
     get moves() { return MOVES; },

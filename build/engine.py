@@ -506,6 +506,74 @@ ABILITY_DISPLAY = {
 SOUND = {'ハイパーボイス', 'うたかたのアリア', 'ばくおんぱ', 'いびき', 'エコーボイス', 'りんしょう'}
 
 
+# ---------------------------------------------------------------- フィールド
+#
+# **フィールドは「場の状態」で、張った側だけでなく両者に効く。**
+# メガソーラー（自分の行動だけ晴れ扱い）の真似をして攻撃側だけに書くと、
+# 相手が張ったサイコフィールドでこちらのエスパー技が1.3倍にならず、
+# こちらの先制技も止まらない、という抜けになる。必ず対面の属性として扱うこと。
+#
+# 反映するのは**自分でフィールドを張るポケモンが対面に居るとき**だけ。
+# 味方のイエッサンに依存するワイドフォース（61位グレンアルマ・122位メガフーディン）は、
+# 1対1の表からは分からないので入れない（ダメージ表の手動切り替えで見る）。
+
+TERRAIN_MAKERS = {'グラスメイカー': 'グラス', 'エレキメイカー': 'エレキ',
+                  'サイコメイカー': 'サイコ', 'ミストメイカー': 'ミスト',
+                  # 旧データ（英語スラッグ）用
+                  'grassy-surge': 'グラス', 'electric-surge': 'エレキ',
+                  'psychic-surge': 'サイコ', 'misty-surge': 'ミスト'}
+# フィールドが1.3倍にするタイプ（第8世代以降。第7世代の1.5倍ではない）
+TERRAIN_TYPE = {'グラス': 'くさ', 'エレキ': 'でんき',
+                'サイコ': 'エスパー', 'ミスト': 'フェアリー'}
+TERRAIN_BOOST = 1.3
+# グラスフィールドが半減する技。**技名で持つ。** 「じめん技すべて」ではない
+GRASS_HALVED = ('じしん', 'じならし', 'マグニチュード')
+# フィールドで挙動が変わる技。効果欄の文面が技ごとにばらばらで機械的に導けないので、
+# 一撃必殺・連続技とは違ってここだけは表で持つ（ウェザーボールと同じ扱い）。
+#   power   … フィールド中の威力
+#   mult    … 威力ではなく倍率で効くもの
+#   pri     … 優先度の加算
+#   ground  … 'self'=撃つ側 / 'target'=受ける側 のどちらが接地していれば効くか
+#   any     … どのフィールドでも効く（だいちのはどうはタイプも変わる）
+TERRAIN_MOVES = {
+    'グラススライダー': dict(terrain='グラス', pri=1, ground='self'),
+    'ワイドフォース': dict(terrain='サイコ', power=120.0, ground='self'),
+    # ライジングボルトが2倍になるのは**相手が接地しているとき**。浮いている相手には乗らない
+    'ライジングボルト': dict(terrain='エレキ', power=140.0, ground='target'),
+    'ミストバースト': dict(terrain='ミスト', mult=1.5, ground='self'),
+    'だいちのはどう': dict(any=True, power=100.0, retype=True, ground='self'),
+}
+
+
+def terrain_of(*mons):
+    """この対面で張られているフィールド。両者の特性から決まる。無ければ None。
+
+    どちらも張る場合は後から出た方が上書きするので本当は決まらない。
+    いまの環境では自軍側に張る駒が居ないため起こらないが、起きたときは
+    相手側を優先する（表は「相手が何をしてくるか」を見るものなので）。"""
+    found = [TERRAIN_MAKERS[k] for mon in mons if mon
+             for k in TERRAIN_MAKERS if k in (mon.get('ability') or '')]
+    return found[0] if found else None
+
+
+def is_grounded(types, ability='', item=''):
+    """接地しているか。**フィールドは地上のポケモンにしか効かない。**
+    ひこうタイプ・ふゆう・ふうせん は浮いているので、1.3倍も先制技封じも受けない。
+    ライジングボルトの威力2倍が乗るかどうかもここで決まる。"""
+    if 'ひこう' in (types or ()):
+        return False
+    ab = ability or ''
+    if 'ふゆう' in ab or 'levitate' in ab:
+        return False
+    return 'ふうせん' not in (item or '')
+
+
+def terrain_blocks_priority(terrain, defender_types, defender_ability, defender_item=''):
+    """サイコフィールドは、接地している相手に先制技を通さない。
+    打点そのものではなく「先に動けるか」に効くので、process_check 側でも見ること。"""
+    return terrain == 'サイコ' and is_grounded(defender_types, defender_ability, defender_item)
+
+
 def ability_mod(ability, move_type, mold_breaker=False, hp_full=True, is_sound=False,
                 is_contact=False, is_physical=False):
     """防御側特性による倍率と、発動した特性名を返す。

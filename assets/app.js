@@ -49,6 +49,8 @@
 
     let tags = '';
     if (primary.pri > 0) tags += ' <span class="pri">先制</span>';
+    // 先制技が消えた理由を出さないと「なぜ後手なのか」が分からない
+    if (primary.pri_blocked) tags += ' <span class="fld">サイコで先制無効</span>';
     if (primary.hits) tags += ` <span class="hits">${esc(primary.hits)}</span>`;
     // 必ず急所に当たる技は数字が1.5倍になっているので、理由を出さないと読み違える
     if (primary.crit) tags += ' <span class="crt">急所</span>';
@@ -78,6 +80,7 @@
     // 被弾側の注記。連続技の回数、皮で1回止まること、条件付き特性が剥がれたときの数字。
     let backTags = '';
     if (back.pri > 0) backTags += ' <span class="pri">先制</span>';
+    if (back.pri_blocked) backTags += ' <span class="fld">サイコで先制無効</span>';
     if (back.hits) backTags += ` <span class="hits">${esc(back.hits)}</span>`;
     if (back.crit) backTags += ' <span class="crt">急所</span>';
     if (back.disguise) backTags += ' <span class="abm">皮が剥がれた後</span>';
@@ -127,6 +130,10 @@
 
     let chips = '';
     if (sr && srOn) chips += `<span class="pat sr-chip-on">SR -${sr}</span>`;
+    // 自分でフィールドを張る相手。打点が1.3倍される・技の威力や優先度が変わるので、
+    // 理由を出さないと「なぜこの数字なのか」が読めない
+    const terrain = Engine.terrainOf(threat);
+    if (terrain) chips += `<span class="pat fld">${esc(terrain)}フィールド</span>`;
     if (threat.multi) chips += `<span class="pat">${esc(threat.pattern)} ${threat.share}%</span>`;
     if (threat.form) chips += `<span class="pat alt">${esc(threat.form)}</span>`;
     if (threat.hp_full === true) chips += '<span class="pat alt">マルチスケイル有効</span>';

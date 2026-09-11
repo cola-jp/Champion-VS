@@ -23,7 +23,9 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     PokemonNotFoundError, RegionFormError,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
                     stats, eff, move_eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
-                    self_boost, rank_multiplier, multi_damage, verdict_plus_one)
+                    self_boost, rank_multiplier, multi_damage, verdict_plus_one,
+                    TERRAIN_MAKERS, TERRAIN_TYPE, TERRAIN_BOOST, TERRAIN_MOVES,
+                    GRASS_HALVED, terrain_of, is_grounded, terrain_blocks_priority)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES, PUNCH_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
@@ -129,13 +131,16 @@ ABILITY_HANDLING = {
     'ファーコート': '反映済み: 受ける物理技0.5倍（防御2倍と同じ）',
     'はどうのぼうご': '反映済み: 受ける接触技0.5倍。接触判定は party.CONTACT_MOVES',
 
-    # --- フィールド系。M-C の最大の未実装 ---
-    # 対応タイプ1.3倍のほかに、グラススライダーの優先度+1・だいちのはどうの威力2倍・
-    # じしん半減・先制技無効まで付く。天候と同じ「場の状態」の枠組みが要るので、
-    # 倍率だけ入れると中途半端に外れる。**入れるときは4つまとめて入れること。**
-    'グラスメイカー': '未反映: グラスフィールド。くさ技1.3倍・グラススライダーの優先度+1など',
-    'エレキメイカー': '未反映: エレキフィールド。でんき技1.3倍・ねむり無効',
-    'サイコメイカー': '未反映: サイコフィールド。エスパー技1.3倍・先制技無効',
+    # --- フィールド系。場の状態なので両者に効く（engine.terrain_of / terrain_mods） ---
+    # 反映するのは**自分で張るポケモンが対面に居るとき**だけ。味方のイエッサンに
+    # 依存するワイドフォース（61位グレンアルマ・122位メガフーディン）は1対1の表から
+    # 分からないので入れていない。
+    'グラスメイカー': '反映済み: くさ技1.3倍・じしん系0.5倍・グラススライダー優先度+1・毎ターン1/16回復',
+    'エレキメイカー': '反映済み: でんき技1.3倍・ライジングボルト威力2倍（相手が接地時）',
+    'サイコメイカー': '反映済み: エスパー技1.3倍・ワイドフォース威力120・接地した相手への先制技を無効',
+    'ミストメイカー': '反映済み: フェアリー技1.3倍・ドラゴン技0.5倍。環境上位には居ない',
+    'くさのけがわ': '未反映: グラスフィールドで防御1.5倍。該当のゴーゴートが環境上位に居ない',
+    'サーフテール': '影響なし: エレキフィールドでの素早さのみ',
 
     # --- 打点にも被弾にも影響しない（変化技・状態異常・素早さ・PPなど） ---
     'いしあたま': '影響なし: 自分が受ける反動のみ。相手のHPは減らない',
@@ -703,6 +708,42 @@ def item_mods(item, m, move_type, type_eff, atk, extra):
     return atk, extra
 
 
+def terrain_mods(terrain, move, move_type, power, extra, pri,
+                 atk_grounded, def_grounded, def_types):
+    """フィールドによる補正。(技タイプ, 威力, その他補正, 優先度) を返す。
+
+    **フィールドは場の状態なので、張った側かどうかに関係なく両者に効く。**
+    攻撃側・防御側それぞれの接地判定が要る（浮いていると効かない）ので、
+    呼び出し側で `is_grounded()` を通した結果を渡すこと。
+
+    掛ける段階は offensive_mods と揃える（威力は基礎、倍率は extra）。"""
+    if not terrain:
+        return move_type, power, extra, pri
+
+    spec = TERRAIN_MOVES.get(move)
+    if spec and (spec.get('any') or spec.get('terrain') == terrain):
+        ok = atk_grounded if spec.get('ground') == 'self' else def_grounded
+        if ok:
+            if spec.get('retype'):
+                move_type = TERRAIN_TYPE[terrain]     # だいちのはどう
+            if spec.get('power'):
+                power = spec['power']
+            if spec.get('mult'):
+                extra *= spec['mult']
+            pri += spec.get('pri', 0)
+
+    # 対応タイプ1.3倍。**撃つ側が接地しているときだけ**
+    if atk_grounded and move_type == TERRAIN_TYPE[terrain]:
+        extra *= TERRAIN_BOOST
+    # グラスは じしん系 を、ミストは ドラゴン技 を半減する。どちらも受ける側が接地しているとき
+    if def_grounded:
+        if terrain == 'グラス' and move in GRASS_HALVED:
+            extra *= 0.5
+        elif terrain == 'ミスト' and move_type == 'ドラゴン':
+            extra *= 0.5
+    return move_type, power, extra, pri
+
+
 def offensive_mods(ability, move, m, attacker_types, atk, protean=False,
                    defender_ability=''):
     """攻撃側の特性による補正をまとめて返す。(技タイプ, 威力, 攻撃, その他補正, 一致補正)
@@ -791,6 +832,20 @@ def my_hit(member, move, threat, hp_eff=None):
     move_type, power, atk, extra, stab, flags = offensive_mods(
         member.get('ability'), move, m, member['types'], atk0, protean,
         defender_ability=threat.get('ability'))
+    # フィールドは対面の属性。両者の特性から決まり、張った側に関係なく双方に効く
+    terrain = terrain_of(member, threat)
+    pri = m['pri'] or 0
+    if terrain:
+        move_type, power, extra, pri = terrain_mods(
+            terrain, move, move_type, power, extra, pri,
+            is_grounded(member['types'], member.get('ability'), member.get('item')),
+            is_grounded(threat['types'], threat.get('ability'), threat.get('item')),
+            threat['types'])
+        # タイプが変わると一致判定もやり直しになる（だいちのはどう）
+        if not protean:
+            stab = (2.0 if ('てきおうりょく' in (member.get('ability') or '')
+                            and move_type in member['types'])
+                    else 1.5 if move_type in member['types'] else 1.0)
     t = move_eff(move, move_type, *threat['types'])
     atk, extra = item_mods(member.get('item'), m, move_type, t, atk, extra)
     am, ab_name = ability_mod(threat['ability'], move_type, member['mold_breaker'],
@@ -849,8 +904,16 @@ def my_hit(member, move, threat, hp_eff=None):
         result['sturdy'] = True
     if crit:
         result['crit'] = True
-    if m['pri']:
-        result['pri'] = m['pri']
+    # 優先度はフィールドで変わる（グラススライダー）。素の m['pri'] ではなく調整後を返す。
+    # サイコフィールドは接地した相手への先制技を止めるので、優先度そのものを消す
+    if terrain_blocks_priority(terrain, threat['types'], threat.get('ability'),
+                               threat.get('item')) and pri > 0:
+        result['pri_blocked'] = True
+        pri = 0
+    if pri:
+        result['pri'] = pri
+    if terrain:
+        result['terrain'] = terrain
     if am != 1.0 and ab_name:
         result['ab_name'] = ab_name
         result['ab_mult'] = am
@@ -925,6 +988,7 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
     """their_hit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。"""
     main, rare = [], []
     defender_sturdy = False
+    terrain = terrain_of(threat, member)
     for mv, usage in threat['moves_use'][:8]:
         m = MOVES.get(mv)
         if not m or not m['power']:
@@ -933,6 +997,20 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
         move_type, power, atk, extra, stab, flags = offensive_mods(
             ability, mv, m, threat['types'], atk0, threat['protean'],
             defender_ability=(member.get('ability') if defender_ability_on else ''))
+
+        # 打点側（my_hit）と同じフィールド補正を必ず通す。
+        # 片方だけに書くと、相手のワイドフォースが威力80のままになる
+        pri = m['pri'] or 0
+        if terrain:
+            move_type, power, extra, pri = terrain_mods(
+                terrain, mv, move_type, power, extra, pri,
+                is_grounded(threat['types'], threat.get('ability'), threat.get('item')),
+                is_grounded(member['types'], member.get('ability'), member.get('item')),
+                member['types'])
+            if not threat['protean']:
+                stab = (2.0 if ('てきおうりょく' in ability
+                                and move_type in threat['types'])
+                        else 1.5 if move_type in threat['types'] else 1.0)
 
         t = move_eff(mv, move_type, *member['types'])
         atk, extra = item_mods(threat['item'], m, move_type, t, atk, extra)
@@ -973,8 +1051,16 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
             cand['hits'] = '2回(おやこあい)'
         if m['crit']:
             cand['crit'] = True
-        if m['pri']:
-            cand['pri'] = m['pri']
+        # サイコフィールドは接地したこちらへの先制技を止める。相手の先制技で
+        # 落とされる前提の主表示を選ばないよう、ここで優先度を消しておく
+        if terrain_blocks_priority(terrain, member['types'], member.get('ability'),
+                                   member.get('item')) and pri > 0:
+            cand['pri_blocked'] = True
+            pri = 0
+        if pri:
+            cand['pri'] = pri
+        if terrain:
+            cand['terrain'] = terrain
         (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)
 
     # 主表示は採用率が閾値を超える技の中での最大打点。低採用の技しか無いポケモンだけ、
@@ -1021,9 +1107,12 @@ MAX_TURNS = 12
 SUPER_TAKE_PH = 40
 
 
-def _heal_parts(mon, moves_use=None):
-    """(回復技1回ぶんの回復量, たべのこしの毎ターン回復量) を返す。
-    回復技はそのターン攻撃できない。たべのこしはターンを消費しない。"""
+def _heal_parts(mon, moves_use=None, terrain=None):
+    """(回復技1回ぶんの回復量, 毎ターンの受動回復量) を返す。
+    回復技はそのターン攻撃できない。たべのこしとグラスフィールドはターンを消費しない。
+
+    **グラスフィールドは接地しているポケモンを毎ターン1/16回復する。**
+    たべのこしと同じ枠で、打ち合いのターン数に効く。両方持っていれば重なる。"""
     hp = mon['st'][0]
     if moves_use is None:
         names = set(mon.get('moves') or [])
@@ -1031,6 +1120,9 @@ def _heal_parts(mon, moves_use=None):
         names = {mv for mv, u in moves_use if u > RARE_MOVE_THRESHOLD}
     move_heal = hp // 2 if (names & RECOVERY_MOVES) else 0
     passive = hp // 16 if 'たべのこし' in (mon.get('item') or '') else 0
+    if terrain == 'グラス' and is_grounded(mon['types'], mon.get('ability'),
+                                           mon.get('item')):
+        passive += hp // 16
     return move_heal, passive
 
 
@@ -1075,8 +1167,10 @@ def process_check(member, threat):
     their_dmg = back['hi']                     # 相手は最高乱数
     their_pri = back.get('pri', 0) or 0
     my_hp, their_hp = member['st'][0], threat['st'][0]
-    my_heal, my_pass = _heal_parts(member)
-    their_heal, their_pass = _heal_parts(threat, threat['moves_use'])
+    # グラスフィールドは両者を毎ターン回復させる。**片方だけに渡さないこと。**
+    terrain = terrain_of(member, threat)
+    my_heal, my_pass = _heal_parts(member, terrain=terrain)
+    their_heal, their_pass = _heal_parts(threat, threat['moves_use'], terrain=terrain)
 
     # 2発目以降は相手が満タンではない。マルチスケイル・がんじょうは初撃にしか効かない
     threat_hurt = dict(threat, hp_full=False)

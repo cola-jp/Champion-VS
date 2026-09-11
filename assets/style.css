@@ -101,6 +101,9 @@ border-radius:3px;vertical-align:1px}
 /* ステルスロック設置中の目印。SR切り替えは行を再計算して描き直すので、
    出ているときだけこのチップが付く。 */
 .sr-chip-on{background:#7a3b46;color:#ffd9df}
+/* フィールド。自分で張る相手にだけ出る。数字が動く理由を示すための印 */
+.pat.fld{background:#2f5d4a;color:#c8f5df}
+.fld{font-size:10.5px;font-weight:700;color:#8fe0bd;white-space:nowrap}
 tr.nonmega.hide{display:none}
 @media (max-width:760px){
 :root{--pad:11px}

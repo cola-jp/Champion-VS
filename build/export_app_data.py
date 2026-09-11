@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
                     CONTACT_HALF, PHYSICAL_HALF, ABILITY_DISPLAY, SOUND, MEGA_BASE, is_mega,
+                    TERRAIN_MAKERS, TERRAIN_TYPE, TERRAIN_BOOST, TERRAIN_MOVES, GRASS_HALVED,
                     VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
                     MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -119,6 +120,13 @@ def rules():
         doubleEn=[[k, list(v)] for k, v in DOUBLE_EN.items()],
         contactHalf=list(CONTACT_HALF),
         physicalHalf=list(PHYSICAL_HALF),
+        # フィールド。どの特性がどれを張るか・どの技がどう変わるかの判断は Python 側。
+        # JS は受け取って掛けるだけ（abilityTypeEffect と同じ分担）
+        terrainMakers=TERRAIN_MAKERS,
+        terrainType=TERRAIN_TYPE,
+        terrainBoost=TERRAIN_BOOST,
+        terrainMoves=TERRAIN_MOVES,
+        grassHalved=list(GRASS_HALVED),
         abilityDisplay=ABILITY_DISPLAY,
         abilityJa=ABILITY_JA,
         abilityHandling=ABILITY_HANDLING,
@@ -201,6 +209,10 @@ def golden():
                 processed=proc_ok,
                 # 超有利（選出補助の★）もJS側と突き合わせる
                 processSuper=proc_info['super'],
+                # フィールドは優先度を動かす（グラススライダー+1、サイコは先制技を消す）。
+                # 打点の数字だけ見ていると優先度の移植漏れに気づけないので明示的に比べる
+                primaryPri=primary.get('pri'), backPri=back.get('pri'),
+                terrain=primary.get('terrain'),
                 boostMove=boosted['move'] if boosted else None,
                 boostPh=boosted['ph'] if boosted else None,
                 boostStages=boosted['stages'] if boosted else None,
