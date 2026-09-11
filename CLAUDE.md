@@ -48,16 +48,22 @@ assets/store.js             登録したパーティの保存（localStorage）
 assets/style.css            共通のCSS
 ```
 
-ビルドと検証:
+ビルドと検証（**追加インストールは要らない。標準ライブラリだけで動く**）:
 
 ```bash
-pip install openpyxl
 python build/generate.py         # データの整合性を確認（生成物は作らない）
 python build/export_app_data.py  # appdata/*.json を書き出す
 node build/verify_engine.js      # JS移植がPython版と一致するか確認
 ```
 
+外部パッケージが要るのは次の2つだけで、どちらも通常のビルドでは動かさない:
+
+- `tools/parse_champs.py` … `pip install beautifulsoup4`（シーズンのデータを取り直すとき）
+- `build/migrate_to_csv.py` … `pip install openpyxl`（xlsx から CSV への一度きりの移行。もう使わない）
+
 `appdata/` を作り直したらコミットすること。CI が「コミット済みのものと一致するか」を見ている。
+CI は **Python 3.10 と最新の2本**で回している（生成物がバージョンに依らないことの確認。
+経緯は「使用率の合計に float の sum() を使わない」）。
 
 パーティの構成を変えるときは `party.txt` をゲーム内のステータス画面を見ながら編集する
 （`build/party.py` は直接触らない）。書き方は `party.txt` 冒頭のコメントを参照。
