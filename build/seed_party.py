@@ -103,7 +103,9 @@ def block(name, pattern=None):
 
     label = name if want_mega else base
     stamp = e.get('season') or e.get('month') or '不明'
-    return (f'# {label} {p}型 {norm:.0f}%（{stamp} の使用率データの最頻値）\n'
+    # norm は Fraction（バージョン差で丸めがぶれないようにするため）。
+    # Fraction を .0f で書式化できるのは Python 3.12 以降なので、先に round する
+    return (f'# {label} {p}型 {round(norm)}%（{stamp} の使用率データの最頻値）\n'
             + note
             + f'{base} @ {item}\n'
             f'{NAT_JA.get(nature, nature)} / {ability}\n'

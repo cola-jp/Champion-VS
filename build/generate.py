@@ -14,6 +14,7 @@ appdata/golden.json を作り直して node build/verify_engine.js を通すこ�
 """
 import os
 import sys
+from fractions import Fraction
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -249,6 +250,29 @@ MULTI_HIT = {name: m['multi']['label'] for name, m in MOVES.items() if m['multi'
 
 # ---------------------------------------------------------------- 相手の型を作る
 
+def usage_tenths(pct):
+    """使用率(%)を「0.1%単位の整数」にする。使用率データは小数第1位までなので誤差なく整数になる。
+
+    **使用率の合計に float の sum() を使わないこと。** Python 3.12 で sum() が
+    誤差補償つき（Neumaier）に変わり、3.11以前と結果が変わる。
+    実際にこれで 59位メガフシギバナ の型比率が 38% と 37% に割れ、
+    CI（最新の3.x）と開発機（3.10）で appdata が一致せずビルドが落ちた:
+
+        3.10  sum(...) -> 29.599999999999998 -> 11.1/total*100 = 37.5        -> round 38
+        3.14  sum(...) -> 29.6               -> 11.1/total*100 = 37.49999... -> round 37
+
+    正しい値は 11.1/29.6 = 111/296 = ちょうど 37.5 で、偶数丸めで 38。
+    整数（と Fraction）で通せばどのバージョンでも 38 になる。
+    """
+    return round(pct * 10)
+
+
+def usage_sum(values):
+    """使用率の合計。上と同じ理由で、float のまま足さずに0.1%単位の整数で足す。
+    しきい値との比較（メガストーンの採用率 >= 50 など）が境目で裏返るのを防ぐ。"""
+    return sum(usage_tenths(v) for v in values) / 10
+
+
 def spread_pattern(sps):
     """投資量の多い上位2ステータスを H,A,B,C,D,S の正順で表記する。
     CSとSCのような順序違いを同一視し、第3ステータスへの端数振りは無視する。"""
@@ -260,22 +284,30 @@ def spread_pattern(sps):
 
 def spread_variants(entry):
     """採用率SPREAD_THRESHOLD%以上のパターンを最大2件返す。
-    JSONのspreadsは各ポケモン上位12件しか無く合計は平均71.5%にしかならないので、
-    表示用の比率は報告分の合計で割り直す。"""
-    total = sum(s['usage'] for s in entry['spreads'])
+    spreads は上位の配分しか入っておらず合計は100%にならないので、
+    表示用の比率は報告分の合計で割り直す（CLAUDE.md「使用率データの打ち切り」）。
+
+    **合計と比率は整数で出す。** 使用率は小数第1位までなので10倍すれば整数になり、
+    どの Python でも同じ値になる（`usage_tenths` のコメントに経緯）。"""
+    tenths = [usage_tenths(s['usage']) for s in entry['spreads']]
+    total = sum(tenths)
     agg = {}
-    for s in entry['spreads']:
+    for s, t in zip(entry['spreads'], tenths):
         p = spread_pattern(s['sps'])
-        a = agg.setdefault(p, {'usage': 0.0, 'best': None, 'best_usage': 0.0})
-        a['usage'] += s['usage']
-        if s['usage'] > a['best_usage']:
-            a['best_usage'] = s['usage']
+        a = agg.setdefault(p, {'tenths': 0, 'best': None, 'best_tenths': 0})
+        a['tenths'] += t
+        if t > a['best_tenths']:
+            a['best_tenths'] = t
             a['best'] = s['sps']
-    out = [(p, d['usage'], d['best'], d['usage'] / total * 100)
-           for p, d in agg.items() if d['usage'] >= SPREAD_THRESHOLD]
+    def row(p, d):
+        # 比率は分数のまま round に渡す。float を挟むと 37.5 が 37.49999… になり、
+        # 偶数丸めの向きが変わって 38% が 37% になる
+        return (p, d['tenths'] / 10, d['best'], Fraction(d['tenths'] * 100, total))
+    out = [row(p, d) for p, d in agg.items()
+           if d['tenths'] >= usage_tenths(SPREAD_THRESHOLD)]
     if not out:
-        p, d = max(agg.items(), key=lambda x: x[1]['usage'])
-        out = [(p, d['usage'], d['best'], d['usage'] / total * 100)]
+        p, d = max(agg.items(), key=lambda x: x[1]['tenths'])
+        out = [row(p, d)]
     out.sort(key=lambda x: -x[1])
     return out[:2]
 
@@ -311,7 +343,8 @@ def _mega_mark(name):
 
 
 def mega_stone_usage(entry):
-    return sum(i['usage'] for i in entry['items'] if _is_stone(i['name']))
+    # しきい値50%の境目で裏返らないよう、合計は usage_sum で出す
+    return usage_sum(i['usage'] for i in entry['items'] if _is_stone(i['name']))
 
 
 def pick_form(entry):
@@ -324,7 +357,7 @@ def pick_form(entry):
     通常メガ と Zメガ）は、**採用率が最も高い石の記号**で選ぶ。"""
     base, megas = resolve_form(entry)
     stones = {i['name']: i['usage'] for i in entry['items'] if _is_stone(i['name'])}
-    if sum(stones.values()) >= 50 and megas:
+    if usage_sum(stones.values()) >= 50 and megas:
         if len(megas) > 1 and stones:
             mark = _stone_mark(max(stones, key=lambda k: stones[k]))
             for m in megas:
@@ -447,8 +480,8 @@ def build_threats(limit=None):
         dex = DEX[name]
         stone = mega_stone_usage(entry)
         base_name, _ = resolve_form(entry)
-        scarf = sum(i['usage'] for i in entry['items']
-                    if i['name'] in ('こだわりスカーフ', 'choice-scarf'))
+        scarf = usage_sum(i['usage'] for i in entry['items']
+                          if i['name'] in ('こだわりスカーフ', 'choice-scarf'))
 
         for pattern, raw, sps, norm in spread_variants(entry):
             d, display_name, form_note = dex, name, ''
