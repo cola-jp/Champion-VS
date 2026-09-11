@@ -118,13 +118,83 @@
 
   function check(member, threat) {
     const key = member.id + '\u0000' + threat.rank + threat.name + threat.pattern
-      + threat.form + threat.hp_full + threat.protean;
+      + threat.form + threat.hp_full + threat.protean
+      + '/' + (threat.tTerrain || '') + (threat.tWeather || '');
     let v = cache.get(key);
     if (v === undefined) {
-      v = Engine.processCheck(member, threat);
+      v = Engine.processCheck(member, threat, threat.tTerrain, threat.tWeather);
       cache.set(key, v);
     }
     return v;
+  }
+
+  // ------------------------------------------- 味方が張る天気・フィールド
+
+  /* この画面は相手6体を入力するので、**同じパーティに居るかどうかが分かる**。
+     ダメージ表は1対1しか見ないので「味方のイエッサンが張っている前提」を出せないが、
+     ここでは出せる。グレンアルマのワイドフォースが典型で、自分では張れないが
+     イエッサンが同居していれば威力120＋1.3倍になる。
+
+     ただし**張り手を選出してくるとは限らない**ので、片方に決めつけない。
+     マルチスケイル解除・へんげんじざい発動と同じく「起こりうる別の状態」として
+     行を2つに分け、両方処理できて初めて「安定」にする。 */
+  function teamFields(picked) {
+    const terrains = new Set(), weathers = new Set();
+    for (const sp of picked) {
+      const t = sp.rows[0];
+      if (!t) continue;
+      const te = Engine.terrainOf(t), we = Engine.weatherOf(t);
+      if (te) terrains.add(te);
+      if (we) weathers.add(we);
+    }
+    return { terrains: [...terrains], weathers: [...weathers] };
+  }
+
+  /* その相手に、その場の状態が実際に影響するか。
+     影響しないものまで行に足すと、読む量が倍になるだけで何も分からない。 */
+  function affected(sp, members, st) {
+    // **1行だけ見る。** 行の違いは配分・マルチスケイル・へんげんじざいで、
+    // 「場の状態が効くかどうか」は変わらない。全行回すと描画が3倍遅くなる
+    const row = sp.rows[0];
+    const alt = Object.assign({}, row, st);
+    for (const m of members) {
+      const a = Engine.theirHit(row, m);
+      const b = Engine.theirHit(alt, m, alt.tTerrain, alt.tWeather);
+      if (a.hi !== b.hi || a.move !== b.move) return true;
+      for (const mv of m.moves) {
+        const ha = Engine.myHit(m, mv, row);
+        const hb = Engine.myHit(m, mv, alt, undefined, alt.tTerrain, alt.tWeather);
+        if ((ha && ha.hi) !== (hb && hb.hi)) return true;
+      }
+    }
+    return false;
+  }
+
+  /* 相手の行を「場の状態」で割り増しする。自分で張る相手は確定しているので割らない。
+     割った相手の名前を返す（注意書きに出すため）。 */
+  function expandRows(picked, members) {
+    // 前回の展開を捨ててから作り直す。入力のたびに増え続けないように
+    for (const sp of picked) sp.rows = sp.rows.filter(r => !r.tTerrain && !r.tWeather);
+    const { terrains, weathers } = teamFields(picked);
+    if (!terrains.length && !weathers.length) return [];
+    const split = [];
+    for (const sp of picked) {
+      if (!sp.rows.length) continue;
+      const own = sp.rows[0];
+      const states = [];
+      if (!Engine.terrainOf(own)) for (const t of terrains) states.push({ tTerrain: t });
+      if (!Engine.weatherOf(own)) for (const w of weathers) states.push({ tWeather: w });
+      const extra = [];
+      for (const st of states) {
+        if (!affected(sp, members, st)) continue;
+        for (const row of sp.rows) extra.push(Object.assign({}, row, st));
+      }
+      if (extra.length) {
+        sp.rows = sp.rows.concat(extra);
+        split.push(sp.name);
+      }
+    }
+    return split;
   }
 
   /* 行の見出し。使用率データの行は2種類の理由で分かれていて、意味が違う:
@@ -137,6 +207,9 @@
     if (t.hp_full === false) k += '・マルチスケイル解除';
     if (t.protean === true) k += '・へんげんじざい発動';
     if (t.protean === false) k += '・不一致技';
+    // 味方が張っている前提の行。どちらの状態で通るのか分からないと使えない
+    if (t.tTerrain) k += `・${t.tTerrain}フィールド下`;
+    if (t.tWeather) k += `・${t.tWeather}`;
     return k;
   }
 
@@ -575,6 +648,11 @@
     });
     // 処理判定は使用率データ（型・技・持ち物）が要るので、圏外の相手には出せない
     const targets = picked.filter(sp => sp.rows.length);
+    // 入力された6体に天気・フィールドを張る駒が居るなら、影響を受ける相手の行を割る。
+    // **キャッシュも捨てる。** 同じ相手でも場の状態が変われば判定が変わる
+    cache.clear();
+    const splitNames = expandRows(targets, slots.flatMap(
+      g => [g.plain, g.mega, g.base].filter(Boolean)));
     const noUsage = picked.filter(sp => !sp.rows.length);
 
     let html = '';
@@ -590,6 +668,16 @@
         `<span class="wklbl">種族値は無補正。物理耐久=H×B/1000・特殊耐久=H×D/1000</span>` +
         `<span class="wklbl">タイプは1文字表記（ノ炎水電草氷格毒地飛超虫岩霊竜悪鋼妖）。列に触れると正式名が出る</span>` +
         `</div></section>`;
+    }
+
+    if (splitNames.length) {
+      html += `<div class="card"><div class="pbody"><div class="grp">` +
+        `<span class="vd v2">場の状態</span><div><div class="prow">` +
+        `<span class="me">${esc(splitNames.join(' , '))}</span>` +
+        `<span class="alt">この相手は、同じパーティに居る天気・フィールドの張り手が` +
+        `出ているかどうかで数字が変わる。<b>張った場合と張らない場合の両方</b>を行に分けて` +
+        `あり、どちらも処理できたときだけ「安定」にしている</span>` +
+        `</div></div></div></div></div>`;
     }
 
     if (missing.length || ambiguous.length || noUsage.length) {
