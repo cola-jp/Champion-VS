@@ -21,6 +21,8 @@ from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     IMMUNE_JA, IMMUNE_EN, HALF_JA, HALF_EN, DOUBLE_JA, DOUBLE_EN,
                     CONTACT_HALF, PHYSICAL_HALF, ABILITY_DISPLAY, SOUND, MEGA_BASE, is_mega,
                     TERRAIN_MAKERS, TERRAIN_TYPE, TERRAIN_BOOST, TERRAIN_MOVES, GRASS_HALVED,
+                    WEATHER_MAKERS, WEATHER_TYPE_MULT, WEATHER_DEF_BOOST, WEATHER_MOVES,
+                    SAND_SAFE_TYPES, SAND_SAFE_ABILITIES, SUN_HEAL_MOVES,
                     VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
                     MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
@@ -127,6 +129,14 @@ def rules():
         terrainBoost=TERRAIN_BOOST,
         terrainMoves=TERRAIN_MOVES,
         grassHalved=list(GRASS_HALVED),
+        # 天気。フィールドと同じ分担（判断は Python、JS は掛けるだけ）
+        weatherMakers=WEATHER_MAKERS,
+        weatherTypeMult=WEATHER_TYPE_MULT,
+        weatherDefBoost={k: list(v) for k, v in WEATHER_DEF_BOOST.items()},
+        weatherMoves=WEATHER_MOVES,
+        sandSafeTypes=list(SAND_SAFE_TYPES),
+        sandSafeAbilities=list(SAND_SAFE_ABILITIES),
+        sunHealMoves=list(SUN_HEAL_MOVES),
         abilityDisplay=ABILITY_DISPLAY,
         abilityJa=ABILITY_JA,
         abilityHandling=ABILITY_HANDLING,
@@ -213,7 +223,8 @@ def golden():
                 # フィールドは優先度を動かす（グラススライダー+1、サイコは先制技を消す）。
                 # 打点の数字だけ見ていると優先度の移植漏れに気づけないので明示的に比べる
                 primaryPri=primary.get('pri'), backPri=back.get('pri'),
-                terrain=primary.get('terrain'),
+                terrain=primary.get('terrain'), weather=primary.get('weather'),
+                primaryAcc=primary.get('acc'),
                 boostMove=boosted['move'] if boosted else None,
                 boostPh=boosted['ph'] if boosted else None,
                 boostStages=boosted['stages'] if boosted else None,

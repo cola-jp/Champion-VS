@@ -25,7 +25,9 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     stats, eff, move_eff, ability_mod, damage, verdict, VERDICT_RANK, SOUND,
                     self_boost, rank_multiplier, multi_damage, verdict_plus_one,
                     TERRAIN_MAKERS, TERRAIN_TYPE, TERRAIN_BOOST, TERRAIN_MOVES,
-                    GRASS_HALVED, terrain_of, is_grounded, terrain_blocks_priority)
+                    GRASS_HALVED, terrain_of, is_grounded, terrain_blocks_priority,
+                    WEATHER_MAKERS, WEATHER_TYPE_MULT, WEATHER_DEF_BOOST, WEATHER_MOVES,
+                    weather_of, sand_chip, weather_heal_ratio)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
                    CONTACT_MOVES, NON_CONTACT_MOVES, PUNCH_MOVES, PULSE_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
@@ -146,7 +148,7 @@ ABILITY_HANDLING = {
     'いしあたま': '影響なし: 自分が受ける反動のみ。相手のHPは減らない',
     'おみとおし': '影響なし: 相手の持ち物を見るだけ',
     'こぼれダネ': '影響なし: 場に出たときグラスフィールドを張るが、フィールドは未計算',
-    'すなかき': '影響なし: すなあらし時の素早さのみ。天候は未計算',
+    'すなかき': '影響なし: すなあらし時の素早さのみ。素早さランクは計算に入れていない',
     'どんかん': '影響なし: メロメロ・ちょうはつ無効のみ',
     'ねつこうかん': '影響なし: ほのおを受けたときのランク上昇。ランク補正は未計算',
     'ねんちゃく': '影響なし: 持ち物を取られないだけ',
@@ -183,16 +185,21 @@ ABILITY_HANDLING = {
     'うなぎのぼり': '未反映: ふゆう＋ビーストブースト。ふゆう部分は IMMUNE 側で反映済み',
     'パンクロック': '未反映: 音技1.3倍／受ける音技0.5倍',
     'ちからずく': '未反映: 追加効果を捨てて1.3倍',
-    'あめふらし': '影響なし: 天候は未計算',
-    'ひでり': '影響なし: 天候は未計算',
-    'すなおこし': '影響なし: 天候は未計算',
-    'ゆきふらし': '影響なし: 天候は未計算',
+    # --- 天気。場の状態なので両者に効く（engine.weather_of / generate.weather_mods） ---
+    'あめふらし': '反映済み: あまごい。みず技1.5倍・ほのお技0.5倍・ウェザーボールがみず・'
+                  'かみなり/ぼうふうが必中・こうごうせい系の回復が1/4',
+    'ひでり': '反映済み: にほんばれ。ほのお技1.5倍・みず技0.5倍・ウェザーボールがほのお・'
+              'こうごうせい系の回復が2/3・ソーラービームは半減しない',
+    'すなおこし': '反映済み: すなあらし。いわの特防1.5倍・毎ターン1/16の定数ダメージ'
+                  '（いわ/じめん/はがねを除く）・こうごうせい系の回復が1/4',
+    'ゆきふらし': '反映済み: ゆき。こおりの防御1.5倍・ふぶきが必中・'
+                  'こうごうせい系の回復が1/4（第9世代なので定数ダメージは無い）',
     'いたずらごころ': '影響なし: 変化技の優先度のみ',
     'おうごんのからだ': '影響なし: 変化技を無効化するだけ',
     'マジックミラー': '影響なし: 変化技を跳ね返すだけ',
     'かげふみ': '影響なし: 交代の制限のみ',
     'かそく': '影響なし: 素早さランクのみ',
-    'すいすい': '影響なし: あめ時の素早さのみ。天候は未計算',
+    'すいすい': '影響なし: あめ時の素早さのみ。素早さランクは計算に入れていない',
     'くだけるよろい': '影響なし: 被弾後のランク変化のみ',
     'じきゅうりょく': '影響なし: 被弾後のランク変化のみ',
     'すりぬけ': '影響なし: 壁や身代わりの貫通のみ',
@@ -708,6 +715,54 @@ def item_mods(item, m, move_type, type_eff, atk, extra):
     return atk, extra
 
 
+def attacker_weather(ability, weather):
+    """その攻撃側から見た天気。メガソーラー持ちは実際の天気に関わらず「はれ」。"""
+    return 'はれ' if 'メガソーラー' in (ability or '') else weather
+
+
+def defense_stat(mon, cat, weather):
+    """天気で上がるぶんを含めた防御側の実数値。
+    すなあらしは いわ の とくぼう、ゆき は こおり の ぼうぎょ が1.5倍。"""
+    idx = 2 if cat == '物理' else 4
+    v = mon['st'][idx]
+    boost = WEATHER_DEF_BOOST.get(weather)
+    if boost:
+        typ, which = boost
+        if typ in (mon.get('types') or ()) and which == ('def' if cat == '物理' else 'spd'):
+            v = int(v * 1.5)
+    return v
+
+
+def weather_mods(weather, move, move_type, power, extra, acc):
+    """天気による補正。(技タイプ, 威力, その他補正, 命中) を返す。
+
+    **メガソーラーはここに合流させてある。** あれは「実際の天気に関わらず自分の行動だけ
+    にほんばれ扱い」という特性なので、呼び出し側が weather='はれ' を渡す。
+    別々に掛けると、雨のときに メガソーラーの1.5倍 と 雨の0.5倍 が両方乗って
+    0.75倍という実際には起きない数字になる。
+
+    掛ける段階は offensive_mods と揃える（威力は基礎、倍率は extra）。"""
+    if not weather:
+        return move_type, power, extra, acc
+
+    spec = WEATHER_MOVES.get(move)
+    if spec:
+        if spec.get('type_by') and weather in spec['type_by']:
+            move_type = spec['type_by'][weather]
+            power = spec['power']
+        if weather in (spec.get('half_in') or ()):
+            power *= 0.5
+        if weather in (spec.get('sure_in') or ()):
+            acc = None                      # 必中
+        elif spec.get('acc_in') and weather in spec['acc_in']:
+            acc = spec['acc_in'][weather]
+
+    mult = WEATHER_TYPE_MULT.get(weather, {}).get(move_type)
+    if mult:
+        extra *= mult
+    return move_type, power, extra, acc
+
+
 def terrain_mods(terrain, move, move_type, power, extra, pri,
                  atk_grounded, def_grounded, def_types):
     """フィールドによる補正。(技タイプ, 威力, その他補正, 優先度) を返す。
@@ -763,14 +818,8 @@ def offensive_mods(ability, move, m, attacker_types, atk, protean=False,
             move_type, extra = skin_type, extra * 1.2
             break
 
-    # メガソーラー: 実際の天候に関わらず自分の行動だけを にほんばれ 状態として扱う
-    if 'メガソーラー' in ability:
-        if move == 'ウェザーボール':
-            move_type, power = 'ほのお', 100.0
-        if move_type == 'ほのお':
-            extra *= 1.5
-        elif move_type == 'みず':
-            extra *= 0.5
+    # メガソーラー（自分だけ常ににほんばれ）は weather_mods 側でまとめて扱う。
+    # ここで別に掛けると、雨のときに 1.5倍 と 0.5倍 が両方乗って 0.75倍になってしまう。
 
     # ほのおのたてがみ: ほのお技の威力1.5倍（メガカエンジシ専用）
     if 'ほのおのたてがみ' in ability and move_type == 'ほのお':
@@ -819,7 +868,7 @@ def _bond_damage(power, atk, dfn, stab, t, extra, crit=False):
     return a[0] + b[0], a[1] + b[1]
 
 
-def my_hit(member, move, threat, hp_eff=None, terrain=None):
+def my_hit(member, move, threat, hp_eff=None, terrain=None, weather=None):
     """自軍の1技が相手に与えるダメージ。変化技はNone、一撃必殺は別扱い。
     hp_eff は判定・%の分母に使う相手のHP。ステルスロック込みの表を作るときに
     「最大HP - SRダメージ」を渡す。ダメージの実数値（lo/hi）自体は変わらない。
@@ -841,6 +890,16 @@ def my_hit(member, move, threat, hp_eff=None, terrain=None):
         defender_ability=threat.get('ability'))
     # フィールドは対面の属性。両者の特性から決まり、張った側に関係なく双方に効く
     terrain = terrain_of(member, threat) or terrain
+    weather = weather_of(member, threat) or weather
+    acc = m['acc']
+    # メガソーラーは実際の天気に関わらず自分だけ はれ 扱い
+    aw = attacker_weather(member.get('ability'), weather)
+    if aw:
+        move_type, power, extra, acc = weather_mods(aw, move, move_type, power, extra, acc)
+        if not protean:
+            stab = (2.0 if ('てきおうりょく' in (member.get('ability') or '')
+                            and move_type in member['types'])
+                    else 1.5 if move_type in member['types'] else 1.0)
     pri = m['pri'] or 0
     if terrain:
         move_type, power, extra, pri = terrain_mods(
@@ -868,7 +927,7 @@ def my_hit(member, move, threat, hp_eff=None, terrain=None):
     sturdy = (ab_name == 'がんじょう')
     if sturdy:
         am = 1.0        # がんじょうも倍率ではない。手数を1つ増やす形で効かせる
-    dfn = threat['st'][2] if m['cat'] == '物理' else threat['st'][4]
+    dfn = defense_stat(threat, m['cat'], weather)
     hp = threat['st'][0] if hp_eff is None else hp_eff
 
     # タイプ相性か特性で通らない技。damage() は最低1を返すので、そのまま計算すると
@@ -921,16 +980,19 @@ def my_hit(member, move, threat, hp_eff=None, terrain=None):
         result['pri'] = pri
     if terrain:
         result['terrain'] = terrain
+    if weather:
+        result['weather'] = weather
     if am != 1.0 and ab_name:
         result['ab_name'] = ab_name
         result['ab_mult'] = am
-    acc = m['acc'] and min(100.0, m['acc'] * flags['acc_mult'])
+    # acc は weather_mods が必中(None)や晴れの50に差し替えている場合がある
+    acc = acc and min(100.0, acc * flags['acc_mult'])
     if acc and acc < 100:
         result['acc'] = round(acc)
     return result
 
 
-def boosted_hit(member, threat, hp_eff=None, terrain=None):
+def boosted_hit(member, threat, hp_eff=None, terrain=None, weather=None):
     """積み技を1回使った後の最大打点。積み技を持たない駒はNone。
     上がるのはその技が実際に上げる能力だけで、段階もその技のぶん。
     つるぎのまいは攻撃+2なので2.0倍、りゅうのまいは攻撃+1なので1.5倍になる。
@@ -946,7 +1008,7 @@ def boosted_hit(member, threat, hp_eff=None, terrain=None):
     for stat, idx in (('atk', 1), ('spa', 3)):
         if stat in boost:
             boosted['st'][idx] = int(member['st'][idx] * rank_multiplier(boost[stat]))
-    hits = [my_hit(boosted, mv, threat, hp_eff, terrain) for mv in member['moves']]
+    hits = [my_hit(boosted, mv, threat, hp_eff, terrain, weather) for mv in member['moves']]
     hits = [h for h in hits if h and not h.get('ohko')]
     if not hits:
         return None
@@ -955,7 +1017,7 @@ def boosted_hit(member, threat, hp_eff=None, terrain=None):
     return best
 
 
-def their_hit(threat, member, terrain=None):
+def their_hit(threat, member, terrain=None, weather=None):
     """相手の最大打点（自軍の実数値に対して）。
     相手の攻撃特性（使用率が最も高いもの＝threat['ability']）と、
     自軍の防御特性の両方を反映する。
@@ -975,7 +1037,8 @@ def their_hit(threat, member, terrain=None):
     has_disguise = ('ばけのかわ' in my_ab) and not mold
 
     def scan(defender_ability_on):
-        return _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain)
+        return _their_hit_scan(threat, member, ability, mold, defender_ability_on,
+                               terrain, weather)
 
     if has_disguise:
         best = scan(False)                     # 皮が剥がれた後の数字を主表示にする
@@ -991,11 +1054,13 @@ def their_hit(threat, member, terrain=None):
     return best
 
 
-def _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain=None):
+def _their_hit_scan(threat, member, ability, mold, defender_ability_on,
+                    terrain=None, weather=None):
     """their_hit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。"""
     main, rare = [], []
     defender_sturdy = False
     terrain = terrain_of(threat, member) or terrain
+    weather = weather_of(threat, member) or weather
     for mv, usage in threat['moves_use'][:8]:
         m = MOVES.get(mv)
         if not m or not m['power']:
@@ -1005,8 +1070,17 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain=
             ability, mv, m, threat['types'], atk0, threat['protean'],
             defender_ability=(member.get('ability') if defender_ability_on else ''))
 
-        # 打点側（my_hit）と同じフィールド補正を必ず通す。
+        # 打点側（my_hit）と同じ天気・フィールド補正を必ず通す。
         # 片方だけに書くと、相手のワイドフォースが威力80のままになる
+        acc = m['acc']
+        aw = attacker_weather(ability, weather)
+        if aw:
+            move_type, power, extra, acc = weather_mods(
+                aw, mv, move_type, power, extra, acc)
+            if not threat['protean']:
+                stab = (2.0 if ('てきおうりょく' in ability
+                                and move_type in threat['types'])
+                        else 1.5 if move_type in threat['types'] else 1.0)
         pri = m['pri'] or 0
         if terrain:
             move_type, power, extra, pri = terrain_mods(
@@ -1040,7 +1114,7 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain=
         if t * am == 0:
             continue    # タイプ相性か特性で通らない技。damage() は最低1を返すので、
                         # ここで落とさないと「じしん 1%」が主表示になってしまう
-        dfn = member['st'][2] if m['cat'] == '物理' else member['st'][4]
+        dfn = defense_stat(member, m['cat'], weather)
         # 特性の倍率は my_hit と同じく「その他補正」に入れる（相性とは段階を分ける）
         if m['multi']:
             lo, hi = multi_damage(m['multi'], power, atk, dfn, stab, t, extra * am,
@@ -1068,6 +1142,8 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain=
             cand['pri'] = pri
         if terrain:
             cand['terrain'] = terrain
+        if weather:
+            cand['weather'] = weather
         (main if usage > RARE_MOVE_THRESHOLD else rare).append(cand)
 
     # 主表示は採用率が閾値を超える技の中での最大打点。低採用の技しか無いポケモンだけ、
@@ -1114,22 +1190,33 @@ MAX_TURNS = 12
 SUPER_TAKE_PH = 40
 
 
-def _heal_parts(mon, moves_use=None, terrain=None):
+def _heal_parts(mon, moves_use=None, terrain=None, weather=None):
     """(回復技1回ぶんの回復量, 毎ターンの受動回復量) を返す。
-    回復技はそのターン攻撃できない。たべのこしとグラスフィールドはターンを消費しない。
+    回復技はそのターン攻撃できない。たべのこし・グラスフィールド・砂はターンを消費しない。
 
     **グラスフィールドは接地しているポケモンを毎ターン1/16回復する。**
-    たべのこしと同じ枠で、打ち合いのターン数に効く。両方持っていれば重なる。"""
+    たべのこしと同じ枠で、打ち合いのターン数に効く。両方持っていれば重なる。
+
+    **天気で回復技の回復量が変わる。** こうごうせい・あさのひざし・つきのひかりは
+    晴れで2/3、雨・砂・雪で1/4。process_check は「回復量 ≧ 打点なら永久に落ちない」で
+    判定しているので、ここを一律1/2にしていると処理可否がひっくり返る。
+
+    すなあらしの定数ダメージは受動回復のマイナスとして返す（合計が負になりうる）。"""
     hp = mon['st'][0]
     if moves_use is None:
         names = set(mon.get('moves') or [])
     else:
         names = {mv for mv, u in moves_use if u > RARE_MOVE_THRESHOLD}
-    move_heal = hp // 2 if (names & RECOVERY_MOVES) else 0
+    heals = names & RECOVERY_MOVES
+    move_heal = 0
+    for mv in heals:
+        num, den = weather_heal_ratio(mv, weather)
+        move_heal = max(move_heal, hp * num // den)
     passive = hp // 16 if 'たべのこし' in (mon.get('item') or '') else 0
     if terrain == 'グラス' and is_grounded(mon['types'], mon.get('ability'),
                                            mon.get('item')):
         passive += hp // 16
+    passive -= sand_chip(mon, weather)
     return move_heal, passive
 
 
@@ -1158,7 +1245,7 @@ def _sustain_cycle(hp_heal, passive, incoming):
     return n if n >= 2 else None      # n=1 は「毎ターン回復＝攻撃できない」ので支えられない
 
 
-def process_check(member, threat, terrain=None):
+def process_check(member, threat, terrain=None, weather=None):
     """この駒がこの相手を処理できるか。(できるか, 理由, 内訳) を返す。
 
     内訳は表示用の材料（手数・先手かどうか・被弾%・超有利か）で、判定には使わない。
@@ -1170,24 +1257,26 @@ def process_check(member, threat, terrain=None):
       ・回復量 < こちらの打点 なら、回復するほど攻撃ターンを失って損 → 一度も回復しない
     なので相手側は「回復し続けて詰む」か「まったく回復しない」かのどちらかで足りる。
     """
-    back = their_hit(threat, member, terrain)
+    back = their_hit(threat, member, terrain, weather)
     their_dmg = back['hi']                     # 相手は最高乱数
     their_pri = back.get('pri', 0) or 0
     my_hp, their_hp = member['st'][0], threat['st'][0]
-    # グラスフィールドは両者を毎ターン回復させる。**片方だけに渡さないこと。**
+    # グラスフィールドと天気は両者に効く。**片方だけに渡さないこと。**
     terrain = terrain_of(member, threat) or terrain
-    my_heal, my_pass = _heal_parts(member, terrain=terrain)
-    their_heal, their_pass = _heal_parts(threat, threat['moves_use'], terrain=terrain)
+    weather = weather_of(member, threat) or weather
+    my_heal, my_pass = _heal_parts(member, terrain=terrain, weather=weather)
+    their_heal, their_pass = _heal_parts(threat, threat['moves_use'],
+                                         terrain=terrain, weather=weather)
 
     # 2発目以降は相手が満タンではない。マルチスケイル・がんじょうは初撃にしか効かない
     threat_hurt = dict(threat, hp_full=False)
 
     best = None
     for mv in member['moves']:
-        h = my_hit(member, mv, threat, terrain=terrain)
+        h = my_hit(member, mv, threat, terrain=terrain, weather=weather)
         if not h or h.get('ohko') or not h.get('hi'):
             continue                           # 一撃必殺は運任せなので数えない
-        h2 = my_hit(member, mv, threat_hurt, terrain=terrain) or h
+        h2 = my_hit(member, mv, threat_hurt, terrain=terrain, weather=weather) or h
         first_dmg = h['lo']                    # 自分は最低乱数
         rest_dmg = h2['lo']                    # 2発目以降（満タン依存の特性が切れた後）
         # 相手が回復技を撃ち続けて耐えきれるなら、この技では永久に落とせない。

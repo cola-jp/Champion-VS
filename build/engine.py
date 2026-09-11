@@ -545,6 +545,76 @@ TERRAIN_MOVES = {
 }
 
 
+# ---------------------------------------------------------------- 天気
+#
+# フィールドと同じく**場の状態**で、張った側だけでなく両者に効く。
+# 反映するのは自分で変える特性を持つポケモンが対面に居るときだけ。
+# 味方が撒いた砂が残っている、といった状況はダメージ表の手動切り替えで見る。
+
+WEATHER_MAKERS = {'すなおこし': 'すな', 'ひでり': 'はれ', 'あめふらし': 'あめ',
+                  'ゆきふらし': 'ゆき',
+                  'sand-stream': 'すな', 'drought': 'はれ', 'drizzle': 'あめ',
+                  'snow-warning': 'ゆき'}
+# 技タイプの倍率。砂と雪にはタイプ倍率が無い（能力上昇と定数ダメージで効く）
+WEATHER_TYPE_MULT = {'はれ': {'ほのお': 1.5, 'みず': 0.5},
+                     'あめ': {'みず': 1.5, 'ほのお': 0.5}}
+# 天気で守備側の能力が上がるタイプ。(タイプ, 上がるのは防御か特防)
+#   すなあらし … いわタイプの**とくぼう**1.5倍
+#   ゆき       … こおりタイプの**ぼうぎょ**1.5倍（第9世代。あられの定数ダメージは廃止）
+WEATHER_DEF_BOOST = {'すな': ('いわ', 'spd'), 'ゆき': ('こおり', 'def')}
+# 砂で削られないタイプと特性。雪は第9世代では削らない
+SAND_SAFE_TYPES = ('いわ', 'じめん', 'はがね')
+SAND_SAFE_ABILITIES = ('すながくれ', 'すなかき', 'すなのちから', 'マジックガード',
+                       'ぼうじん', 'sand-veil', 'sand-rush', 'sand-force', 'magic-guard')
+# 天気で回復量が変わる技。晴れは2/3、雨・砂・雪は1/4、無天候は1/2
+SUN_HEAL_MOVES = ('こうごうせい', 'あさのひざし', 'つきのひかり')
+# 天気で挙動が変わる技。フィールドと同じく効果欄からは機械的に導けないので表で持つ。
+#   type_by  … 天気ごとの技タイプ（威力も power になる）
+#   half_in  … この天気のとき威力半減
+#   sure_in  … この天気のとき必中
+#   acc_in   … この天気のときの命中率
+WEATHER_MOVES = {
+    'ウェザーボール': dict(power=100.0,
+                           type_by={'はれ': 'ほのお', 'あめ': 'みず',
+                                    'すな': 'いわ', 'ゆき': 'こおり'}),
+    'ソーラービーム': dict(half_in=('あめ', 'すな', 'ゆき')),
+    'かみなり': dict(sure_in=('あめ',), acc_in={'はれ': 50.0}),
+    'ぼうふう': dict(sure_in=('あめ',), acc_in={'はれ': 50.0}),
+    'ふぶき': dict(sure_in=('ゆき',)),
+}
+
+
+def weather_of(*mons):
+    """この対面の天気。両者の特性から決まる。無ければ None。
+    どちらも変える場合は後から出た方が上書きするので本当は決まらない。
+    フィールドと同じく、起きたときは先に渡された側（相手）を優先する。"""
+    found = [WEATHER_MAKERS[k] for mon in mons if mon
+             for k in WEATHER_MAKERS if k in (mon.get('ability') or '')]
+    return found[0] if found else None
+
+
+def sand_chip(mon, weather):
+    """すなあらしの毎ターンの定数ダメージ。**ひこうタイプにも入る**（接地は関係ない）。
+    いわ・じめん・はがねと、砂で有利になる特性は受けない。"""
+    if weather != 'すな':
+        return 0
+    if any(t in SAND_SAFE_TYPES for t in (mon.get('types') or ()) if t):
+        return 0
+    if any(k in (mon.get('ability') or '') for k in SAND_SAFE_ABILITIES):
+        return 0
+    return mon['st'][0] // 16
+
+
+def weather_heal_ratio(move, weather):
+    """天気で変わる回復技の回復割合。(分子, 分母) を返す。
+    こうごうせい等は晴れで2/3、雨・砂・雪で1/4。それ以外の回復技は常に1/2。"""
+    if move not in SUN_HEAL_MOVES or not weather:
+        return 1, 2
+    if weather == 'はれ':
+        return 2, 3
+    return 1, 4
+
+
 def terrain_of(*mons):
     """この対面で張られているフィールド。両者の特性から決まる。無ければ None。
 

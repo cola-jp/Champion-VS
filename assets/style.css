@@ -105,6 +105,9 @@ border-radius:3px;vertical-align:1px}
 .pat.fld{background:#2f5d4a;color:#c8f5df}
 /* 手動で仮定したフィールド。相手が自分で張るぶん（.fld）と見分けが付くように枠線にする */
 .pat.fld-as{background:transparent;border:1px dashed #4e8f74;color:#8fe0bd}
+/* 天気。フィールド（緑）と区別が付くように青系にする */
+.pat.wth{background:#33507a;color:#cfe2ff}
+.pat.wth-as{background:transparent;border:1px dashed #5a7cb0;color:#a8c6ef}
 /* ヘッダのフィールド選択。押しボタンではないので矢印を残しつつ .tg に揃える */
 .tg.sel{padding-right:8px;cursor:pointer}
 .tg.sel[aria-pressed=true]{background:#2f5d4a;border-color:#4e8f74;color:#c8f5df;font-weight:700}

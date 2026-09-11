@@ -15,7 +15,7 @@
   // aria-pressed="false" と揃えること（片方だけ変えるとボタンの見た目が嘘になる）
   let showNonMega = false, srOn = false;
   // 手動のフィールド指定。自分で張る特性を持つ側が居る対面では無視される
-  let terrainSel = '';
+  let terrainSel = '', weatherSel = '';
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -38,19 +38,23 @@
   // ---------------------------------------------------------- 1行
 
   function renderRow(member, threat, hpEff) {
-    const t = terrainSel || undefined;
-    const hits = member.moves.map(mv => Engine.myHit(member, mv, threat, hpEff, t));
+    const t = terrainSel || undefined, w = weatherSel || undefined;
+    const hits = member.moves.map(mv => Engine.myHit(member, mv, threat, hpEff, t, w));
     const [primary, alt] = Engine.chooseMove(hits);
     if (!primary) return '';
 
     const vclass = R.verdictClass[primary.verdict] || 'v5';
     const vcolor = R.verdictColor[primary.verdict] || 'var(--weak)';
-    const back = Engine.theirHit(threat, member, t);
+    const back = Engine.theirHit(threat, member, t, w);
     const danger = back.ph >= 100 ? ' dg' : '';
     const faster = member.speed > threat.speed;
     const drawback = new Set(R.drawbackMoves);
 
     let tags = '';
+    // その駒自身が天気を変える場合（カバルドンのすなおこし）は行に印を出す。
+    // カード見出しは相手の自前ぶんしか出さないので、ここに出さないと理由が分からない
+    const ownW = Engine.weatherOf(member);
+    if (ownW && !Engine.weatherOf(threat)) tags += ` <span class="fld">${esc(ownW)}</span>`;
     if (primary.pri > 0) tags += ' <span class="pri">先制</span>';
     // 先制技が消えた理由を出さないと「なぜ後手なのか」が分からない
     if (primary.pri_blocked) tags += ' <span class="fld">サイコで先制無効</span>';
@@ -74,7 +78,7 @@
       sub += `<div class="${up ? 'alt up' : 'alt'}">${esc(alt.move)}${atags}: ` +
              `${alt.pl}-${alt.ph}% ${alt.verdict}</div>`;
     }
-    const boosted = Engine.boostedHit(member, threat, hpEff, t);
+    const boosted = Engine.boostedHit(member, threat, hpEff, t, w);
     if (boosted) {
       sub += `<div class="d1">${esc(member.boosting_move)}+${boosted.stages}: ${esc(boosted.move)} ` +
              `${boosted.pl}-${boosted.ph}% ${boosted.verdict}</div>`;
@@ -139,6 +143,12 @@
     const own = Engine.terrainOf(threat);
     if (own) chips += `<span class="pat fld">${esc(own)}フィールド</span>`;
     else if (terrainSel) chips += `<span class="pat fld-as">${esc(terrainSel)}フィールド（仮定）</span>`;
+    // 天気は**相手の自前ぶんだけ**をカードに出す。自分の駒が変える場合
+    // （カバルドンのすなおこし）はその駒が出ている行にしか効かないので、
+    // カード全体の見出しに出すと他の行まで砂だと言っているように読めてしまう。
+    const ownW = Engine.weatherOf(threat);
+    if (ownW) chips += `<span class="pat wth">${esc(ownW)}</span>`;
+    else if (weatherSel) chips += `<span class="pat wth-as">${esc(weatherSel)}（仮定）</span>`;
     if (threat.multi) chips += `<span class="pat">${esc(threat.pattern)} ${threat.share}%</span>`;
     if (threat.form) chips += `<span class="pat alt">${esc(threat.form)}</span>`;
     if (threat.hp_full === true) chips += '<span class="pat alt">マルチスケイル有効</span>';
@@ -296,6 +306,11 @@
     $('tS').addEventListener('click', ev => {
       srOn = !srOn;
       ev.currentTarget.setAttribute('aria-pressed', srOn);
+      renderAll();
+    });
+    $('tW').addEventListener('change', ev => {
+      weatherSel = ev.currentTarget.value;
+      ev.currentTarget.setAttribute('aria-pressed', !!weatherSel);
       renderAll();
     });
     $('tF').addEventListener('change', ev => {

@@ -237,12 +237,8 @@ const Engine = (() => {
         break;
       }
     }
-    // メガソーラー: 天候に関わらず自分だけ にほんばれ 状態として扱う
-    if (ability.includes('メガソーラー')) {
-      if (move === 'ウェザーボール') { moveType = 'ほのお'; power = 100.0; }
-      if (moveType === 'ほのお') extra *= 1.5;
-      else if (moveType === 'みず') extra *= 0.5;
-    }
+    // メガソーラー（自分だけ常ににほんばれ）は weatherMods 側でまとめて扱う。
+    // ここで別に掛けると 1.5倍 が二重に乗る（実際に踏んで golden が713件落ちた）。
     // ほのおのたてがみ: ほのお技の威力1.5倍（メガカエンジシ専用）
     if (ability.includes('ほのおのたてがみ') && moveType === 'ほのお') extra *= 1.5;
     // すいほう: 自分のみず技2倍。受けるほのお半減は abilityMod 側
@@ -270,6 +266,72 @@ const Engine = (() => {
       accMult: ability.includes('ふくがん') ? 1.3 : 1.0,
     };
     return [moveType, power, atk, extra, stab, flags];
+  }
+
+  // ------------------------------------------------------------ 天気
+  /* フィールドと同じく場の状態で、両者に効く。判断は Python 側、ここは掛けるだけ。 */
+
+  function weatherOf(...mons) {
+    for (const mon of mons) {
+      if (!mon) continue;
+      const ab = mon.ability || '';
+      for (const [k, v] of Object.entries(R.weatherMakers)) {
+        if (ab.includes(k)) return v;
+      }
+    }
+    return null;
+  }
+
+  /* その攻撃側から見た天気。メガソーラー持ちは実際の天気に関わらず「はれ」。
+     **別々に掛けないこと。** 雨のときに 1.5倍 と 0.5倍 が両方乗って 0.75倍になる。 */
+  function attackerWeather(ability, weather) {
+    return (ability || '').includes('メガソーラー') ? 'はれ' : weather;
+  }
+
+  /* すなあらしの毎ターンの定数ダメージ。**ひこうタイプにも入る**（接地は関係ない）。 */
+  function sandChip(mon, weather) {
+    if (weather !== 'すな') return 0;
+    if ((mon.types || []).some(t => t && R.sandSafeTypes.includes(t))) return 0;
+    if (R.sandSafeAbilities.some(k => (mon.ability || '').includes(k))) return 0;
+    return Math.floor(mon.st[0] / 16);
+  }
+
+  /* 天気で変わる回復技の割合。こうごうせい等は晴れ2/3、雨・砂・雪1/4、それ以外1/2。 */
+  function weatherHealRatio(move, weather) {
+    if (!R.sunHealMoves.includes(move) || !weather) return [1, 2];
+    return weather === 'はれ' ? [2, 3] : [1, 4];
+  }
+
+  /* 天気で上がるぶんを含めた防御側の実数値。砂=いわの特防、雪=こおりの防御が1.5倍。 */
+  function defenseStat(mon, cat, weather) {
+    const idx = cat === '物理' ? 2 : 4;
+    let v = mon.st[idx];
+    const boost = R.weatherDefBoost[weather];
+    if (boost) {
+      const [typ, which] = boost;
+      if ((mon.types || []).includes(typ) && which === (cat === '物理' ? 'def' : 'spd')) {
+        v = Math.trunc(v * 1.5);
+      }
+    }
+    return v;
+  }
+
+  /* [技タイプ, 威力, その他補正, 命中] を返す。Python の weather_mods と同じ順序。 */
+  function weatherMods(weather, move, moveType, power, extra, acc) {
+    if (!weather) return [moveType, power, extra, acc];
+    const spec = R.weatherMoves[move];
+    if (spec) {
+      if (spec.type_by && spec.type_by[weather]) {
+        moveType = spec.type_by[weather];
+        power = spec.power;
+      }
+      if ((spec.half_in || []).includes(weather)) power *= 0.5;
+      if ((spec.sure_in || []).includes(weather)) acc = null;
+      else if (spec.acc_in && spec.acc_in[weather]) acc = spec.acc_in[weather];
+    }
+    const mult = (R.weatherTypeMult[weather] || {})[moveType];
+    if (mult) extra *= mult;
+    return [moveType, power, extra, acc];
   }
 
   // ------------------------------------------------------------ フィールド
@@ -328,7 +390,7 @@ const Engine = (() => {
   }
 
   /* terrain は手動指定（ダメージ表の切り替え）。自分で張る側が居ればそちらが優先。 */
-  function myHit(member, move, threat, hpEff, terrain) {
+  function myHit(member, move, threat, hpEff, terrain, weather) {
     if (STATUS.has(move)) return null;
     if (OHKO.has(move)) return { move, ohko: true, acc: MOVES[move].acc };
     const m = MOVES[move];
@@ -342,6 +404,13 @@ const Engine = (() => {
       offensiveMods(member.ability, move, m, member.types, atk0, protean, threat.ability);
     // フィールドは対面の属性。両者の特性から決まり、張った側に関係なく双方に効く
     terrain = terrainOf(member, threat) || terrain || null;
+    weather = weatherOf(member, threat) || weather || null;
+    let acc = m.acc;
+    const aw = attackerWeather(member.ability, weather);
+    if (aw) {
+      [moveType, power, extra, acc] = weatherMods(aw, move, moveType, power, extra, acc);
+      if (!protean) stab = restab(member.ability, moveType, member.types);
+    }
     let pri = m.pri || 0;
     if (terrain) {
       [moveType, power, extra, pri] = terrainMods(
@@ -361,7 +430,7 @@ const Engine = (() => {
     const sturdy = (abName === 'がんじょう');
     if (sturdy) am = 1.0;     // がんじょうも倍率ではない。手数を1つ増やす形で効かせる
 
-    const dfn = m.cat === '物理' ? threat.st[2] : threat.st[4];
+    const dfn = defenseStat(threat, m.cat, weather);
     const hp = hpEff === undefined || hpEff === null ? threat.st[0] : hpEff;
 
     // タイプ相性か特性で通らない技。damage() は最低1を返すので、そのまま計算すると
@@ -403,8 +472,10 @@ const Engine = (() => {
     if (terrainBlocksPriority(terrain, threat) && pri > 0) { res.pri_blocked = true; pri = 0; }
     if (pri) res.pri = pri;
     if (terrain) res.terrain = terrain;
+    if (weather) res.weather = weather;
     if (am !== 1.0 && abName) { res.ab_name = abName; res.ab_mult = am; }
-    const acc = m.acc && Math.min(100.0, m.acc * flags.accMult);
+    // acc は weatherMods が必中(null)や晴れの50に差し替えている場合がある
+    acc = acc && Math.min(100.0, acc * flags.accMult);
     if (acc && acc < 100) res.acc = pyRound(acc);
     return res;
   }
@@ -418,7 +489,7 @@ const Engine = (() => {
      上がるのはその技が実際に上げる能力だけで、段階もその技のぶん
      （つるぎのまいは攻撃+2なので2.0倍）。どの技が何段階上げるかは
      技データから導いた rules.boostStages を引く。JS側で解析し直さない。 */
-  function boostedHit(member, threat, hpEff, terrain) {
+  function boostedHit(member, threat, hpEff, terrain, weather) {
     const move = member.boosting_move;
     if (!move) return null;
     const boost = R.boostStages[move];
@@ -430,7 +501,7 @@ const Engine = (() => {
         boosted.st[idx] = Math.trunc(member.st[idx] * rankMultiplier(boost[stat]));
       }
     }
-    const hits = member.moves.map(mv => myHit(boosted, mv, threat, hpEff, terrain))
+    const hits = member.moves.map(mv => myHit(boosted, mv, threat, hpEff, terrain, weather))
                              .filter(h => h && !h.ohko);
     if (!hits.length) return null;
     const best = hits.reduce((a, b) => (b.hi > a.hi ? b : a));
@@ -472,7 +543,7 @@ const Engine = (() => {
        ばけのかわ     … 皮がある間は攻撃が通らない。0%を出しても役に立たないので、
                         主表示は剥がれた後の数字にして disguise の印を付ける。
      相手がかたやぶり系ならどちらも無視される。 */
-  function theirHit(threat, member, terrain) {
+  function theirHit(threat, member, terrain, weather) {
     const ability = threat.ability_ja || threat.ability || '';
     const mold = ['かたやぶり', 'ターボブレイズ', 'テラボルテージ'].some(k => ability.includes(k));
     const myAb = member.ability || '';
@@ -480,13 +551,13 @@ const Engine = (() => {
     const hasDisguise = myAb.includes('ばけのかわ') && !mold;
 
     if (hasDisguise) {
-      const best = theirHitScan(threat, member, ability, mold, false, terrain);
+      const best = theirHitScan(threat, member, ability, mold, false, terrain, weather);
       if (best.move !== '—') best.disguise = true;
       return best;
     }
-    const best = theirHitScan(threat, member, ability, mold, true, terrain);
+    const best = theirHitScan(threat, member, ability, mold, true, terrain, weather);
     if (hasMs && best.move !== '—') {
-      const stripped = theirHitScan(threat, member, ability, mold, false, terrain);
+      const stripped = theirHitScan(threat, member, ability, mold, false, terrain, weather);
       if (stripped.move !== '—' && stripped.hi > best.hi) {
         best.stripped = stripped;
         best.stripped_label = 'マルチスケイル解除';
@@ -496,10 +567,11 @@ const Engine = (() => {
   }
 
   /* theirHit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。 */
-  function theirHitScan(threat, member, ability, mold, defenderAbilityOn, terrain) {
+  function theirHitScan(threat, member, ability, mold, defenderAbilityOn, terrain, weather) {
     const main = [], rare = [];
     let defenderSturdy = false;
     terrain = terrainOf(threat, member) || terrain || null;
+    weather = weatherOf(threat, member) || weather || null;
     for (const entry of threat.moves.slice(0, 8)) {
       const mv = entry.name, usage = entry.usage;
       const m = MOVES[mv];
@@ -510,8 +582,14 @@ const Engine = (() => {
         offensiveMods(ability, mv, m, threat.types, atk0, threat.protean,
                       defenderAbilityOn ? member.ability : '');
 
-      // 打点側（myHit）と同じフィールド補正を必ず通す。
+      // 打点側（myHit）と同じ天気・フィールド補正を必ず通す。
       // 片方だけに書くと、相手のワイドフォースが威力80のままになる
+      let acc = m.acc;
+      const aw = attackerWeather(ability, weather);
+      if (aw) {
+        [moveType, power, extra, acc] = weatherMods(aw, mv, moveType, power, extra, acc);
+        if (!threat.protean) stab = restab(ability, moveType, threat.types);
+      }
       let pri = m.pri || 0;
       if (terrain) {
         [moveType, power, extra, pri] = terrainMods(
@@ -539,7 +617,7 @@ const Engine = (() => {
       }
 
       if (t * am === 0) continue;   // 相性か特性で通らない技。damage() は最低1を返すので落とす
-      const dfn = m.cat === '物理' ? member.st[2] : member.st[4];
+      const dfn = defenseStat(member, m.cat, weather);
       // 特性の倍率は myHit と同じく「その他補正」に入れる（相性とは段階を分ける）
       const [lo, hi] = m.multi
         ? multiDamage(m.multi, power, atk, dfn, stab, t, extra * am, flags.skillLink, !!m.crit)
@@ -558,6 +636,7 @@ const Engine = (() => {
       if (terrainBlocksPriority(terrain, member) && pri > 0) { cand.pri_blocked = true; pri = 0; }
       if (pri) cand.pri = pri;
       if (terrain) cand.terrain = terrain;
+      if (weather) cand.weather = weather;
       (usage > R.rareMoveThreshold ? main : rare).push(cand);
     }
     const pool = main.length ? main : rare;
@@ -592,18 +671,24 @@ const Engine = (() => {
 
   /* [回復技1回ぶんの回復量, たべのこしの毎ターン回復量]。
      回復技はそのターン攻撃できない。たべのこしはターンを消費しない。 */
-  function healParts(mon, movesUse, terrain) {
+  function healParts(mon, movesUse, terrain, weather) {
     const hp = mon.st[0];
     const recovery = new Set(R.recoveryMoves);
     const names = movesUse
       ? movesUse.filter(e => e.usage > R.rareMoveThreshold).map(e => e.name)
       : (mon.moves || []);
-    const moveHeal = names.some(n => recovery.has(n)) ? Math.floor(hp / 2) : 0;
+    let moveHeal = 0;
+    for (const n of names) {
+      if (!recovery.has(n)) continue;
+      const [num, den] = weatherHealRatio(n, weather);
+      moveHeal = Math.max(moveHeal, Math.floor(hp * num / den));
+    }
     let passive = (mon.item || '').includes('たべのこし') ? Math.floor(hp / 16) : 0;
     // グラスフィールドは接地しているポケモンを毎ターン1/16回復する（たべのこしと同じ枠）
     if (terrain === 'グラス' && isGrounded(mon.types, mon.ability, mon.item)) {
       passive += Math.floor(hp / 16);
     }
+    passive -= sandChip(mon, weather);
     return [moveHeal, passive];
   }
 
@@ -634,24 +719,25 @@ const Engine = (() => {
      回復技はそのターン攻撃できない。これを踏まえると相手の最適行動は二択になる:
        ・回復量 >= こちらの打点 なら、毎ターン回復すれば永久に落ちない → 処理不可
        ・回復量 < こちらの打点 なら、回復するほど攻撃ターンを失って損 → 一度も回復しない */
-  function processCheck(member, threat, terrain) {
-    const back = theirHit(threat, member, terrain);
+  function processCheck(member, threat, terrain, weather) {
+    const back = theirHit(threat, member, terrain, weather);
     const theirDmg = back.hi;                    // 相手は最高乱数
     const theirPri = back.pri || 0;
     const myHp = member.st[0], theirHp = threat.st[0];
     // グラスフィールドは両者を回復させる。**片方だけに渡さないこと。**
     terrain = terrainOf(member, threat) || terrain || null;
-    const [myHeal, myPass] = healParts(member, undefined, terrain);
-    const [theirHeal, theirPass] = healParts(threat, threat.moves, terrain);
+    weather = weatherOf(member, threat) || weather || null;
+    const [myHeal, myPass] = healParts(member, undefined, terrain, weather);
+    const [theirHeal, theirPass] = healParts(threat, threat.moves, terrain, weather);
 
     // 2発目以降は相手が満タンではない。マルチスケイル・がんじょうは初撃にしか効かない
     const threatHurt = Object.assign({}, threat, { hp_full: false });
 
     let best = null;
     for (const mv of member.moves) {
-      const h = myHit(member, mv, threat, undefined, terrain);
+      const h = myHit(member, mv, threat, undefined, terrain, weather);
       if (!h || h.ohko || !h.hi) continue;       // 一撃必殺は運任せなので数えない
-      const h2 = myHit(member, mv, threatHurt, undefined, terrain) || h;
+      const h2 = myHit(member, mv, threatHurt, undefined, terrain, weather) || h;
       const firstDmg = h.lo;                     // 自分は最低乱数
       const restDmg = h2.lo;
       // 相手が回復技を撃ち続けて耐えきれるなら、この技では永久に落とせない
@@ -946,6 +1032,8 @@ const Engine = (() => {
         ['primaryPri', primary.pri === undefined ? null : primary.pri, row.primaryPri],
         ['backPri', back.pri === undefined ? null : back.pri, row.backPri],
         ['terrain', primary.terrain === undefined ? null : primary.terrain, row.terrain],
+        ['weather', primary.weather === undefined ? null : primary.weather, row.weather],
+        ['primaryAcc', primary.acc === undefined ? null : primary.acc, row.primaryAcc],
         ['boostMove', boosted ? boosted.move : null, row.boostMove],
         ['boostPh', boosted ? boosted.ph : null, row.boostPh],
         ['boostStages', boosted ? boosted.stages : null, row.boostStages],
@@ -964,7 +1052,7 @@ const Engine = (() => {
   return {
     load, stats, statValue, eff, abilityMod, damage, verdict, srDamage,
     myHit, boostedHit, theirHit, chooseMove, processCheck,
-    terrainOf, isGrounded,
+    terrainOf, isGrounded, weatherOf,
     parseParty, formatParty, selfTest, pyRound, PartyError, pointsFromStats,
     get dex() { return DEX; },
     get moves() { return MOVES; },
