@@ -14,7 +14,9 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          # 開発機と同じ系列に固定する。'3.x' だと CI だけ先に上がってしまい、
+          # appdata の突き合わせが落ちたときに手元で再現できない。
+          python-version: '3.10'
 
       - uses: actions/setup-node@v4
         with:
@@ -26,8 +28,16 @@ jobs:
       - name: ブラウザ用データを書き出す
         run: python build/export_app_data.py
 
+      # 落ちたときに「どのファイルのどこが違うか」がログに残るようにしておく。
+      # --exit-code だけだと差分が出ないので、手元で再現できないと調べようがない。
       - name: appdata/ がコミット済みのものと一致するか確認
-        run: git diff --exit-code appdata/
+        run: |
+          if ! git diff --quiet appdata/ data/code_dict.json; then
+            echo '::error::生成物がコミット済みのものと一致しません'
+            git diff --stat appdata/ data/code_dict.json
+            git diff -U0 appdata/ data/code_dict.json | head -80
+            exit 1
+          fi
 
       - name: JS移植がPython版と同じ数値を出すか確認
         run: node build/verify_engine.js

@@ -19,8 +19,14 @@ const ROOT = path.dirname(__dirname);
 function loadEngine() {
   // engine.js はブラウザ用の素のスクリプト（module 構文なし）なので、
   // 末尾に export を足して CommonJS として読み込む。
+  //
+  // **partycode.js も一緒に読むこと。** selfTest の文字列コードの検証は
+  // `typeof PartyCode !== 'undefined'` で守ってあるので、読まないと**黙って飛ばされる**。
+  // ブラウザ（verify.html）では検証できていたのに CI では素通り、という状態になる。
+  // 2つを同じスコープで評価するために1つのモジュールとして繋げている。
   const src = fs.readFileSync(path.join(ROOT, 'assets', 'engine.js'), 'utf8')
-            + '\nmodule.exports = Engine;\n';
+            + '\n' + fs.readFileSync(path.join(ROOT, 'assets', 'partycode.js'), 'utf8')
+            + '\nmodule.exports = { Engine, PartyCode };\n';
   const m = new Module('engine.js', null);
   m._compile(src, path.join(ROOT, 'assets', 'engine.js'));
   return m.exports;
@@ -36,7 +42,7 @@ function readJson(name) {
 }
 
 function main() {
-  const Engine = loadEngine();
+  const { Engine, PartyCode } = loadEngine();
   const data = {
     dex: readJson('dex.json'),
     moves: readJson('moves.json'),
@@ -47,6 +53,11 @@ function main() {
   const golden = readJson('golden.json');
 
   Engine.load(data);
+  PartyCode.load(readJson('code.json'));
+  if (!PartyCode.ready) {
+    console.error('PartyCode が初期化できていません。文字列コードの検証が飛ばされます。');
+    process.exit(1);
+  }
   const res = Engine.selfTest(golden, threats);
 
   console.log(`相手 ${threats.length} 行 / 期待値 ${golden.rows.length} 行`);
