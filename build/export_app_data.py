@@ -24,7 +24,7 @@ from engine import (ROOT, DEX, MOVES, EFF, NATURE, NAT_JA, IDX,
                     VERDICT_RANK, VERDICT_PLUS_ONE, STRIPPABLE_ABILITIES,
                     MEGA_NAMES, ABILITIES, self_boost)
 from party import (DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
-                   CONTACT_MOVES, NON_CONTACT_MOVES, BOOSTING_MOVES, PUNCH_MOVES,
+                   CONTACT_MOVES, NON_CONTACT_MOVES, BOOSTING_MOVES, PUNCH_MOVES, PULSE_MOVES,
                    MOLD_BREAKER_ABILITIES, FAIRY_SKIN_ABILITIES, SHARPNESS_ABILITIES,
                    MAX_POINTS_PER_STAT, MAX_POINTS_TOTAL, RARE_MOVE_THRESHOLD,
                    THREAT_RANK_LIMIT)
@@ -136,6 +136,7 @@ def rules():
         slashMoves=sorted(SLASH_MOVES),
         contactMoves=sorted(CONTACT_MOVES),
         punchMoves=sorted(PUNCH_MOVES),
+        pulseMoves=sorted(PULSE_MOVES),
         # 処理判定（generate.process_check）で使う。JS側で書き写さない
         recoveryMoves=sorted(RECOVERY_MOVES),
         maxTurns=MAX_TURNS,

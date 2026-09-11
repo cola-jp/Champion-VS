@@ -13,7 +13,7 @@
 
 const Engine = (() => {
   let DEX = {}, MOVES = {}, TYPES = {}, R = {};
-  let SLASH, OHKO, STATUS, DRAWBACK, BOOSTING, CONTACT, PUNCH, SOUND_SET;
+  let SLASH, OHKO, STATUS, DRAWBACK, BOOSTING, CONTACT, PUNCH, PULSE, SOUND_SET;
 
   function load(data) {
     DEX = data.dex;
@@ -27,6 +27,7 @@ const Engine = (() => {
     BOOSTING = new Set(R.boostingMoves);
     CONTACT = new Set(R.contactMoves);
     PUNCH = new Set(R.punchMoves);
+    PULSE = new Set(R.pulseMoves);
     SOUND_SET = new Set(R.sound);
   }
 
@@ -251,6 +252,8 @@ const Engine = (() => {
         && (ability.includes('フェアリーオーラ')
             || (defenderAbility || '').includes('フェアリーオーラ'))) extra *= 1.33;
     if (ability.includes('てつのこぶし') && PUNCH.has(move)) extra *= 1.2;
+    // メガランチャー（メガカメックス58位）。技4つすべてが波動技なので影響が大きい
+    if (ability.includes('メガランチャー') && PULSE.has(move)) extra *= 1.5;
     if (ability.includes('テクニシャン') && power <= 60) power *= 1.5;
     if ((ability.includes('ちからもち') || ability.includes('ヨガパワー')) && m.cat === '物理') atk *= 2;
     if (ability.includes('きれあじ') && SLASH.has(move)) extra *= 1.5;

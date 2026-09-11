@@ -27,7 +27,7 @@ from engine import (ROOT, DEX, MOVES, USAGE, BY_DEX_NO, NAT_JA, resolve_form,
                     TERRAIN_MAKERS, TERRAIN_TYPE, TERRAIN_BOOST, TERRAIN_MOVES,
                     GRASS_HALVED, terrain_of, is_grounded, terrain_blocks_priority)
 from party import (PARTY, DRAWBACK_MOVES, SLASH_MOVES, OHKO_MOVES, STATUS_MOVES,
-                   CONTACT_MOVES, NON_CONTACT_MOVES, PUNCH_MOVES,
+                   CONTACT_MOVES, NON_CONTACT_MOVES, PUNCH_MOVES, PULSE_MOVES,
                    THREAT_RANK_LIMIT, SPREAD_THRESHOLD, RARE_MOVE_THRESHOLD)
 
 STAT_KEYS = ['hp', 'atk', 'def', 'spa', 'spd', 'spe']
@@ -177,7 +177,7 @@ ABILITY_HANDLING = {
     'トレース': '未反映: 相手の特性をコピーするので事前に定まらない',
     'ぼうだん': '未反映: 弾技の無効化。対象技の一覧を持っていない',
     'ひらいしん': '影響なし: ダブル用の吸い寄せ。でんき無効は IMMUNE 側で反映済み',
-    'メガランチャー': '未反映: 波動技1.5倍。対象技の一覧を持っていない',
+    'メガランチャー': '反映済み: 波動技1.5倍。対象は party.PULSE_MOVES',
     'とびだすなかみ': '未反映: 瀕死時に受けたダメージ分を反射。対面表の与ダメージには出ない',
     'とびだすハバネロ': '未反映: 被弾時に相手をやけど。状態異常は未計算',
     'うなぎのぼり': '未反映: ふゆう＋ビーストブースト。ふゆう部分は IMMUNE 側で反映済み',
@@ -784,6 +784,9 @@ def offensive_mods(ability, move, m, attacker_types, atk, protean=False,
         extra *= 1.33
     if 'てつのこぶし' in ability and move in PUNCH_MOVES:
         extra *= 1.2
+    # メガランチャー（メガカメックス58位）。技4つすべてが波動技なので影響が大きい
+    if 'メガランチャー' in ability and move in PULSE_MOVES:
+        extra *= 1.5
     if 'テクニシャン' in ability and power <= 60:
         power *= 1.5
     if ('ちからもち' in ability or 'ヨガパワー' in ability) and m['cat'] == '物理':
@@ -816,10 +819,14 @@ def _bond_damage(power, atk, dfn, stab, t, extra, crit=False):
     return a[0] + b[0], a[1] + b[1]
 
 
-def my_hit(member, move, threat, hp_eff=None):
+def my_hit(member, move, threat, hp_eff=None, terrain=None):
     """自軍の1技が相手に与えるダメージ。変化技はNone、一撃必殺は別扱い。
     hp_eff は判定・%の分母に使う相手のHP。ステルスロック込みの表を作るときに
-    「最大HP - SRダメージ」を渡す。ダメージの実数値（lo/hi）自体は変わらない。"""
+    「最大HP - SRダメージ」を渡す。ダメージの実数値（lo/hi）自体は変わらない。
+
+    terrain は「味方が張っている前提で見たい」ときの手動指定（ダメージ表の切り替え）。
+    **自分で張る特性を持つ側が居ればそちらが優先**される。手動指定はどちらも
+    張らないときだけ効く。指定しなければ従来どおり特性からだけ決まる。"""
     if move in STATUS_MOVES:
         return None
     if move in OHKO_MOVES:
@@ -833,7 +840,7 @@ def my_hit(member, move, threat, hp_eff=None):
         member.get('ability'), move, m, member['types'], atk0, protean,
         defender_ability=threat.get('ability'))
     # フィールドは対面の属性。両者の特性から決まり、張った側に関係なく双方に効く
-    terrain = terrain_of(member, threat)
+    terrain = terrain_of(member, threat) or terrain
     pri = m['pri'] or 0
     if terrain:
         move_type, power, extra, pri = terrain_mods(
@@ -948,7 +955,7 @@ def boosted_hit(member, threat, hp_eff=None):
     return best
 
 
-def their_hit(threat, member):
+def their_hit(threat, member, terrain=None):
     """相手の最大打点（自軍の実数値に対して）。
     相手の攻撃特性（使用率が最も高いもの＝threat['ability']）と、
     自軍の防御特性の両方を反映する。
@@ -968,7 +975,7 @@ def their_hit(threat, member):
     has_disguise = ('ばけのかわ' in my_ab) and not mold
 
     def scan(defender_ability_on):
-        return _their_hit_scan(threat, member, ability, mold, defender_ability_on)
+        return _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain)
 
     if has_disguise:
         best = scan(False)                     # 皮が剥がれた後の数字を主表示にする
@@ -984,11 +991,11 @@ def their_hit(threat, member):
     return best
 
 
-def _their_hit_scan(threat, member, ability, mold, defender_ability_on):
+def _their_hit_scan(threat, member, ability, mold, defender_ability_on, terrain=None):
     """their_hit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。"""
     main, rare = [], []
     defender_sturdy = False
-    terrain = terrain_of(threat, member)
+    terrain = terrain_of(threat, member) or terrain
     for mv, usage in threat['moves_use'][:8]:
         m = MOVES.get(mv)
         if not m or not m['power']:
@@ -1151,7 +1158,7 @@ def _sustain_cycle(hp_heal, passive, incoming):
     return n if n >= 2 else None      # n=1 は「毎ターン回復＝攻撃できない」ので支えられない
 
 
-def process_check(member, threat):
+def process_check(member, threat, terrain=None):
     """この駒がこの相手を処理できるか。(できるか, 理由, 内訳) を返す。
 
     内訳は表示用の材料（手数・先手かどうか・被弾%・超有利か）で、判定には使わない。
@@ -1163,12 +1170,12 @@ def process_check(member, threat):
       ・回復量 < こちらの打点 なら、回復するほど攻撃ターンを失って損 → 一度も回復しない
     なので相手側は「回復し続けて詰む」か「まったく回復しない」かのどちらかで足りる。
     """
-    back = their_hit(threat, member)
+    back = their_hit(threat, member, terrain)
     their_dmg = back['hi']                     # 相手は最高乱数
     their_pri = back.get('pri', 0) or 0
     my_hp, their_hp = member['st'][0], threat['st'][0]
     # グラスフィールドは両者を毎ターン回復させる。**片方だけに渡さないこと。**
-    terrain = terrain_of(member, threat)
+    terrain = terrain_of(member, threat) or terrain
     my_heal, my_pass = _heal_parts(member, terrain=terrain)
     their_heal, their_pass = _heal_parts(threat, threat['moves_use'], terrain=terrain)
 
@@ -1177,10 +1184,10 @@ def process_check(member, threat):
 
     best = None
     for mv in member['moves']:
-        h = my_hit(member, mv, threat)
+        h = my_hit(member, mv, threat, terrain=terrain)
         if not h or h.get('ohko') or not h.get('hi'):
             continue                           # 一撃必殺は運任せなので数えない
-        h2 = my_hit(member, mv, threat_hurt) or h
+        h2 = my_hit(member, mv, threat_hurt, terrain=terrain) or h
         first_dmg = h['lo']                    # 自分は最低乱数
         rest_dmg = h2['lo']                    # 2発目以降（満タン依存の特性が切れた後）
         # 相手が回復技を撃ち続けて耐えきれるなら、この技では永久に落とせない。
