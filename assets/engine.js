@@ -327,7 +327,8 @@ const Engine = (() => {
     return types.includes(moveType) ? 1.5 : 1.0;
   }
 
-  function myHit(member, move, threat, hpEff) {
+  /* terrain は手動指定（ダメージ表の切り替え）。自分で張る側が居ればそちらが優先。 */
+  function myHit(member, move, threat, hpEff, terrain) {
     if (STATUS.has(move)) return null;
     if (OHKO.has(move)) return { move, ohko: true, acc: MOVES[move].acc };
     const m = MOVES[move];
@@ -340,7 +341,7 @@ const Engine = (() => {
     let [moveType, power, atk, extra, stab, flags] =
       offensiveMods(member.ability, move, m, member.types, atk0, protean, threat.ability);
     // フィールドは対面の属性。両者の特性から決まり、張った側に関係なく双方に効く
-    const terrain = terrainOf(member, threat);
+    terrain = terrainOf(member, threat) || terrain || null;
     let pri = m.pri || 0;
     if (terrain) {
       [moveType, power, extra, pri] = terrainMods(
@@ -417,7 +418,7 @@ const Engine = (() => {
      上がるのはその技が実際に上げる能力だけで、段階もその技のぶん
      （つるぎのまいは攻撃+2なので2.0倍）。どの技が何段階上げるかは
      技データから導いた rules.boostStages を引く。JS側で解析し直さない。 */
-  function boostedHit(member, threat, hpEff) {
+  function boostedHit(member, threat, hpEff, terrain) {
     const move = member.boosting_move;
     if (!move) return null;
     const boost = R.boostStages[move];
@@ -429,7 +430,7 @@ const Engine = (() => {
         boosted.st[idx] = Math.trunc(member.st[idx] * rankMultiplier(boost[stat]));
       }
     }
-    const hits = member.moves.map(mv => myHit(boosted, mv, threat, hpEff))
+    const hits = member.moves.map(mv => myHit(boosted, mv, threat, hpEff, terrain))
                              .filter(h => h && !h.ohko);
     if (!hits.length) return null;
     const best = hits.reduce((a, b) => (b.hi > a.hi ? b : a));
@@ -471,7 +472,7 @@ const Engine = (() => {
        ばけのかわ     … 皮がある間は攻撃が通らない。0%を出しても役に立たないので、
                         主表示は剥がれた後の数字にして disguise の印を付ける。
      相手がかたやぶり系ならどちらも無視される。 */
-  function theirHit(threat, member) {
+  function theirHit(threat, member, terrain) {
     const ability = threat.ability_ja || threat.ability || '';
     const mold = ['かたやぶり', 'ターボブレイズ', 'テラボルテージ'].some(k => ability.includes(k));
     const myAb = member.ability || '';
@@ -479,13 +480,13 @@ const Engine = (() => {
     const hasDisguise = myAb.includes('ばけのかわ') && !mold;
 
     if (hasDisguise) {
-      const best = theirHitScan(threat, member, ability, mold, false);
+      const best = theirHitScan(threat, member, ability, mold, false, terrain);
       if (best.move !== '—') best.disguise = true;
       return best;
     }
-    const best = theirHitScan(threat, member, ability, mold, true);
+    const best = theirHitScan(threat, member, ability, mold, true, terrain);
     if (hasMs && best.move !== '—') {
-      const stripped = theirHitScan(threat, member, ability, mold, false);
+      const stripped = theirHitScan(threat, member, ability, mold, false, terrain);
       if (stripped.move !== '—' && stripped.hi > best.hi) {
         best.stripped = stripped;
         best.stripped_label = 'マルチスケイル解除';
@@ -495,10 +496,10 @@ const Engine = (() => {
   }
 
   /* theirHit の本体。自軍の防御特性を効かせるかどうかを切り替えて2回呼ぶ。 */
-  function theirHitScan(threat, member, ability, mold, defenderAbilityOn) {
+  function theirHitScan(threat, member, ability, mold, defenderAbilityOn, terrain) {
     const main = [], rare = [];
     let defenderSturdy = false;
-    const terrain = terrainOf(threat, member);
+    terrain = terrainOf(threat, member) || terrain || null;
     for (const entry of threat.moves.slice(0, 8)) {
       const mv = entry.name, usage = entry.usage;
       const m = MOVES[mv];
@@ -633,13 +634,13 @@ const Engine = (() => {
      回復技はそのターン攻撃できない。これを踏まえると相手の最適行動は二択になる:
        ・回復量 >= こちらの打点 なら、毎ターン回復すれば永久に落ちない → 処理不可
        ・回復量 < こちらの打点 なら、回復するほど攻撃ターンを失って損 → 一度も回復しない */
-  function processCheck(member, threat) {
-    const back = theirHit(threat, member);
+  function processCheck(member, threat, terrain) {
+    const back = theirHit(threat, member, terrain);
     const theirDmg = back.hi;                    // 相手は最高乱数
     const theirPri = back.pri || 0;
     const myHp = member.st[0], theirHp = threat.st[0];
     // グラスフィールドは両者を回復させる。**片方だけに渡さないこと。**
-    const terrain = terrainOf(member, threat);
+    terrain = terrainOf(member, threat) || terrain || null;
     const [myHeal, myPass] = healParts(member, undefined, terrain);
     const [theirHeal, theirPass] = healParts(threat, threat.moves, terrain);
 
@@ -648,9 +649,9 @@ const Engine = (() => {
 
     let best = null;
     for (const mv of member.moves) {
-      const h = myHit(member, mv, threat);
+      const h = myHit(member, mv, threat, undefined, terrain);
       if (!h || h.ohko || !h.hi) continue;       // 一撃必殺は運任せなので数えない
-      const h2 = myHit(member, mv, threatHurt) || h;
+      const h2 = myHit(member, mv, threatHurt, undefined, terrain) || h;
       const firstDmg = h.lo;                     // 自分は最低乱数
       const restDmg = h2.lo;
       // 相手が回復技を撃ち続けて耐えきれるなら、この技では永久に落とせない

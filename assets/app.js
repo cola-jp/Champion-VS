@@ -14,6 +14,8 @@
   // 非メガ側は「メガる前にどうか」を確かめたいときだけ。index.html の
   // aria-pressed="false" と揃えること（片方だけ変えるとボタンの見た目が嘘になる）
   let showNonMega = false, srOn = false;
+  // 手動のフィールド指定。自分で張る特性を持つ側が居る対面では無視される
+  let terrainSel = '';
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g,
@@ -36,13 +38,14 @@
   // ---------------------------------------------------------- 1行
 
   function renderRow(member, threat, hpEff) {
-    const hits = member.moves.map(mv => Engine.myHit(member, mv, threat, hpEff));
+    const t = terrainSel || undefined;
+    const hits = member.moves.map(mv => Engine.myHit(member, mv, threat, hpEff, t));
     const [primary, alt] = Engine.chooseMove(hits);
     if (!primary) return '';
 
     const vclass = R.verdictClass[primary.verdict] || 'v5';
     const vcolor = R.verdictColor[primary.verdict] || 'var(--weak)';
-    const back = Engine.theirHit(threat, member);
+    const back = Engine.theirHit(threat, member, t);
     const danger = back.ph >= 100 ? ' dg' : '';
     const faster = member.speed > threat.speed;
     const drawback = new Set(R.drawbackMoves);
@@ -71,7 +74,7 @@
       sub += `<div class="${up ? 'alt up' : 'alt'}">${esc(alt.move)}${atags}: ` +
              `${alt.pl}-${alt.ph}% ${alt.verdict}</div>`;
     }
-    const boosted = Engine.boostedHit(member, threat, hpEff);
+    const boosted = Engine.boostedHit(member, threat, hpEff, t);
     if (boosted) {
       sub += `<div class="d1">${esc(member.boosting_move)}+${boosted.stages}: ${esc(boosted.move)} ` +
              `${boosted.pl}-${boosted.ph}% ${boosted.verdict}</div>`;
@@ -132,8 +135,10 @@
     if (sr && srOn) chips += `<span class="pat sr-chip-on">SR -${sr}</span>`;
     // 自分でフィールドを張る相手。打点が1.3倍される・技の威力や優先度が変わるので、
     // 理由を出さないと「なぜこの数字なのか」が読めない
-    const terrain = Engine.terrainOf(threat);
-    if (terrain) chips += `<span class="pat fld">${esc(terrain)}フィールド</span>`;
+    // 相手が自分で張るぶんは常に出す。手動指定は「仮定」と分かるように印を変える
+    const own = Engine.terrainOf(threat);
+    if (own) chips += `<span class="pat fld">${esc(own)}フィールド</span>`;
+    else if (terrainSel) chips += `<span class="pat fld-as">${esc(terrainSel)}フィールド（仮定）</span>`;
     if (threat.multi) chips += `<span class="pat">${esc(threat.pattern)} ${threat.share}%</span>`;
     if (threat.form) chips += `<span class="pat alt">${esc(threat.form)}</span>`;
     if (threat.hp_full === true) chips += '<span class="pat alt">マルチスケイル有効</span>';
@@ -291,6 +296,12 @@
     $('tS').addEventListener('click', ev => {
       srOn = !srOn;
       ev.currentTarget.setAttribute('aria-pressed', srOn);
+      renderAll();
+    });
+    $('tF').addEventListener('change', ev => {
+      terrainSel = ev.currentTarget.value;
+      // 選んでいることが一目で分かるように、点灯の見た目を他のトグルと揃える
+      ev.currentTarget.setAttribute('aria-pressed', !!terrainSel);
       renderAll();
     });
     addEventListener('keydown', ev => {

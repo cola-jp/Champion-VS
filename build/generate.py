@@ -930,7 +930,7 @@ def my_hit(member, move, threat, hp_eff=None, terrain=None):
     return result
 
 
-def boosted_hit(member, threat, hp_eff=None):
+def boosted_hit(member, threat, hp_eff=None, terrain=None):
     """積み技を1回使った後の最大打点。積み技を持たない駒はNone。
     上がるのはその技が実際に上げる能力だけで、段階もその技のぶん。
     つるぎのまいは攻撃+2なので2.0倍、りゅうのまいは攻撃+1なので1.5倍になる。
@@ -946,7 +946,7 @@ def boosted_hit(member, threat, hp_eff=None):
     for stat, idx in (('atk', 1), ('spa', 3)):
         if stat in boost:
             boosted['st'][idx] = int(member['st'][idx] * rank_multiplier(boost[stat]))
-    hits = [my_hit(boosted, mv, threat, hp_eff) for mv in member['moves']]
+    hits = [my_hit(boosted, mv, threat, hp_eff, terrain) for mv in member['moves']]
     hits = [h for h in hits if h and not h.get('ohko')]
     if not hits:
         return None
