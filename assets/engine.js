@@ -282,6 +282,13 @@ const Engine = (() => {
     return null;
   }
 
+  /* はやてのつばさ。**満タン時だけ**ひこう技の優先度+1。
+     先手を取れるかは processCheck の結論を変えるので、倍率ではなくここで効かせる。 */
+  function galeWings(ability, moveType, hpFull) {
+    return ((ability || '').includes('はやてのつばさ') && moveType === 'ひこう'
+            && hpFull !== false) ? 1 : 0;
+  }
+
   /* その攻撃側から見た天気。メガソーラー持ちは実際の天気に関わらず「はれ」。
      **別々に掛けないこと。** 雨のときに 1.5倍 と 0.5倍 が両方乗って 0.75倍になる。 */
   function attackerWeather(ability, weather) {
@@ -411,7 +418,8 @@ const Engine = (() => {
       [moveType, power, extra, acc] = weatherMods(aw, move, moveType, power, extra, acc);
       if (!protean) stab = restab(member.ability, moveType, member.types);
     }
-    let pri = m.pri || 0;
+    // 自軍側も同じ扱い。片方だけに書くと将来入れたときに黙って抜ける
+    let pri = (m.pri || 0) + galeWings(member.ability, moveType, true);
     if (terrain) {
       [moveType, power, extra, pri] = terrainMods(
         terrain, move, moveType, power, extra, pri,
@@ -590,7 +598,7 @@ const Engine = (() => {
         [moveType, power, extra, acc] = weatherMods(aw, mv, moveType, power, extra, acc);
         if (!threat.protean) stab = restab(ability, moveType, threat.types);
       }
-      let pri = m.pri || 0;
+      let pri = (m.pri || 0) + galeWings(ability, moveType, threat.hp_full);
       if (terrain) {
         [moveType, power, extra, pri] = terrainMods(
           terrain, mv, moveType, power, extra, pri,

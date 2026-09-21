@@ -12,8 +12,8 @@ data/type_chart.csv        タイプ相性表（一次データ）
 data/常用漢字.txt           文字列コードに使う常用漢字2136字。**並びを変えない**
 data/code_dict.json        文字列コードの台帳。**追記専用。並べ替え・挿入は禁止**
 data/ポケモン図鑑.xlsx      CSVの移行元。コードはもう読まない。消さずに残してある
-data/usage.json            使用率148体分（champs.pokedb.tokyo。シーズンごとに差し替える）
-                           表に載せるのは上位150位まで（party.THREAT_RANK_LIMIT）。型を分けて214行
+data/usage.json            使用率150体分（champs.pokedb.tokyo。シーズンごとに差し替える）
+                           表に載せるのは上位150位まで（party.THREAT_RANK_LIMIT）。型を分けて219行
 data/move_names_en_ja.json 旧データ（英語名）用の技名対応表。新ソースでは使わないが、
                            過去データで再現を取るために残してある
 data/特性の効果.pdf         育成考察Wikiの特性一覧ページ。特性の効果を確認したいときの原典
@@ -58,7 +58,9 @@ node build/verify_engine.js      # JS移植がPython版と一致するか確認
 
 外部パッケージが要るのは次の2つだけで、どちらも通常のビルドでは動かさない:
 
-- `tools/parse_champs.py` … `pip install beautifulsoup4`（シーズンのデータを取り直すとき）
+- `tools/parse_champs.py` … `pip install beautifulsoup4 lxml`（シーズンのデータを取り直すとき）
+  **lxml も要る。** BeautifulSoup に `'lxml'` を指定しているので、入っていないと
+  `FeatureNotFound` で止まる
 - `build/migrate_to_csv.py` … `pip install openpyxl`（xlsx から CSV への一度きりの移行。もう使わない）
 
 `appdata/` を作り直したらコミットすること。CI が「コミット済みのものと一致するか」を見ている。
@@ -484,12 +486,21 @@ M-C 以降は **champs.pokedb.tokyo** から取る。APIが無いのでHTMLを�
 
 ```bash
 # 1. https://champs.pokedb.tokyo/pokemon/list?season=6&rule=0 を開く
+#    **シーズンが進んだら season の値を変えるだけ。** スクリプトは開いているページの
+#    URL から season / rule を拾い、保存名も champs_sN_raw.json になる
 # 2. 開発者ツールのコンソールに tools/fetch_champs.js を貼って実行（上位150体・約1分）
 #    サーバーサイドレンダリングなので Fetch/XHR には何も出ない。Doc を見ること。
 #    ページ内から fetch するので Referer が付き、直リンクの Forbidden を回避できる
-# 3. 落ちてきた champs_s6_raw.json を通す
-python tools/parse_champs.py detail <html>       # 単体確認用
-python tools/to_usage.py parsed.json data/usage.json "M-C (S6)"
+# 3. 落ちてきた champs_sN_raw.json を中間JSONにしてから usage.json にする
+python - <<'EOF'
+import json, sys; sys.path.insert(0, 'tools')
+import parse_champs
+raw = json.load(open('champs_s6_raw.json', encoding='utf-8'))
+out = [dict(parse_champs.parse_detail(x['html'], x['rank']), name=x['name'])
+       for x in raw['details']]
+json.dump(out, open('parsed.json', 'w', encoding='utf-8'), ensure_ascii=False)
+EOF
+python tools/to_usage.py parsed.json data/usage.json "M-C (S6) 2026-09-20"
 ```
 
 **シーズン名は手で渡す。** データ側に入っていないので、渡し忘れると
@@ -502,7 +513,8 @@ python tools/to_usage.py parsed.json data/usage.json "M-C (S6)"
 シーズンが変わったら妥当か見直すこと。
 
 データが空のポケモン（シーズン初期に起きる）は `to_usage.py` が除外する。
-そのぶん順位に欠番ができる（M-C は135位・150位が欠けて148件）。
+そのぶん順位に欠番ができる（シーズン序盤のスナップショットでは135位・150位が欠けて148件だった。
+2026-09-20 の取り直しでは150件すべて揃っている）。
 
 ### 型の分割ルール
 

@@ -128,6 +128,13 @@ ABILITY_HANDLING = {
     'マルチスケイル': '反映済み: 満タン時0.5倍。行を2つに分けている',
     'ばけのかわ': '反映済み: 等倍で出しターン+1として扱う',
     'ハードロック': '反映済み: 効果抜群のときだけ0.75倍',
+    'かんそうはだ': '反映済み: みず無効（IMMUNE_JA）。'
+                    'ほのお1.25倍と天気によるHP増減は未反映（140位エレザードのみ）',
+    'はやてのつばさ': '反映済み: 満タン時にひこう技の優先度+1。134位ファイアローの'
+                      'ブレイブバードが先制になる',
+    'じしんかじょう': '未反映: 相手を倒した後のA+1。ランク補正を計算に入れていない',
+    'ふしょく': '影響なし: はがね・どくにも毒を入れられるだけ。状態異常は未計算',
+    'さまようたましい': '未反映: 接触時に特性を入れ替える。入れ替わった後が定まらない',
     'フィルター': '反映済み: ハードロックと同じ0.75倍',
     'そうしょく': '反映済み: くさ無効',
     'ファーコート': '反映済み: 受ける物理技0.5倍（防御2倍と同じ）',
@@ -658,6 +665,7 @@ ITEM_DAMAGE = {
     'こだわりメガネ':   dict(atk_mult=1.5, cat='特殊'),
     # タイプ強化アイテム（該当タイプの技を1.2倍）
     'くろいメガネ':     dict(mult=1.2, type='あく'),
+    'くろおび':         dict(mult=1.2, type='かくとう'),
     'しんぴのしずく':   dict(mult=1.2, type='みず'),
     'のろいのおふだ':   dict(mult=1.2, type='ゴースト'),
     'とけないこおり':   dict(mult=1.2, type='こおり'),
@@ -713,6 +721,14 @@ def item_mods(item, m, move_type, type_eff, atk, extra):
     if spec.get('mult'):
         extra *= spec['mult']
     return atk, extra
+
+
+def gale_wings(ability, move_type, hp_full):
+    """はやてのつばさ。**満タン時だけ**ひこう技の優先度+1。
+    先手を取れるかどうかは process_check の結論を変えるので、倍率ではなくここで効かせる。
+    満タンかどうかは相手の行が持っている（マルチスケイルと同じ hp_full）。"""
+    return (1 if ('はやてのつばさ' in (ability or '') and move_type == 'ひこう'
+                  and hp_full is not False) else 0)
 
 
 def attacker_weather(ability, weather):
@@ -900,7 +916,9 @@ def my_hit(member, move, threat, hp_eff=None, terrain=None, weather=None):
             stab = (2.0 if ('てきおうりょく' in (member.get('ability') or '')
                             and move_type in member['types'])
                     else 1.5 if move_type in member['types'] else 1.0)
-    pri = m['pri'] or 0
+    # 自軍側も同じ扱いにしておく。いまの party.txt に該当は無いが、
+    # 片方だけに書くと将来入れたときに黙って抜ける（てきおうりょくで実際に踏んだ）
+    pri = (m['pri'] or 0) + gale_wings(member.get('ability'), move_type, True)
     if terrain:
         move_type, power, extra, pri = terrain_mods(
             terrain, move, move_type, power, extra, pri,
@@ -1081,7 +1099,7 @@ def _their_hit_scan(threat, member, ability, mold, defender_ability_on,
                 stab = (2.0 if ('てきおうりょく' in ability
                                 and move_type in threat['types'])
                         else 1.5 if move_type in threat['types'] else 1.0)
-        pri = m['pri'] or 0
+        pri = (m['pri'] or 0) + gale_wings(ability, move_type, threat['hp_full'])
         if terrain:
             move_type, power, extra, pri = terrain_mods(
                 terrain, mv, move_type, power, extra, pri,

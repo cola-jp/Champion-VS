@@ -2,12 +2,14 @@
 //
 // 使い方
 //   1. https://champs.pokedb.tokyo/pokemon/list?season=6&rule=0 を開く
+//      （シーズンが進んだら season の値を変える。スクリプト側の変更は不要で、
+//        開いているページのリンクをそのまま辿る）
 //   2. 開発者ツール(F12)のコンソールにこのファイルの中身を貼って実行
-//   3. 数分待つと champs_s6_raw.json がダウンロードされる
+//   3. 1分ほどで champs_s6_raw.json がダウンロードされる
 //
-// ページ内から fetch するので Referer / Origin が正しく付き、Forbidden にならない。
-// 詳細ページは1体あたり0.5〜1.3MBあるが、必要な6ブロックだけ切り出して保持するので
-// 手元に残るのは1体あたり数十KB。ブラウザがメモリを抱え込まずに済む。
+// このサイトはサーバー側でHTMLを組み立てて返すので Fetch/XHR には何も出ない。
+// ページ内から fetch するので Referer / Origin が正しく付き、直リンクの Forbidden を避けられる。
+// 詳細ページは1体あたり0.5〜1.3MBあるが、必要な6ブロックだけ切り出すので手元に残るのは約9%。
 (async () => {
   const TOP  = 150;   // 何位まで取るか
   const WAIT = 400;   // 1件あたりの待ち時間(ms)
@@ -28,6 +30,9 @@
     return parts.join('\n');
   }
 
+  const season = new URLSearchParams(location.search).get('season') || '6';
+  const rule   = new URLSearchParams(location.search).get('rule') || '0';
+
   const links = [...document.querySelectorAll('a[href^="/pokemon/show/"]')]
     .map(a => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') }))
     .map(x => { const m = x.text.match(/^(\d+)\s+(.+)$/); return m ? { rank: +m[1], name: m[2], href: x.href } : null; })
@@ -35,8 +40,8 @@
     .filter(x => x.rank <= TOP)
     .sort((a, b) => a.rank - b.rank);
 
-  console.log(`対象 ${links.length} 体 / 想定 約${Math.round(links.length * WAIT / 1000 / 60 * 10) / 10}分`);
-  const out = { season: 6, rule: 0, fetched_at: new Date().toISOString(), details: [] };
+  console.log(`season=${season} 対象 ${links.length} 体 / 想定 約${Math.round(links.length * WAIT / 1000 / 60 * 10) / 10}分`);
+  const out = { season: +season, rule: +rule, fetched_at: new Date().toISOString(), details: [] };
   const failed = [];
 
   for (const [i, x] of links.entries()) {
@@ -57,6 +62,6 @@
 
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([json], { type: 'application/json;charset=utf-8' }));
-  a.download = 'champs_s6_raw.json';
+  a.download = `champs_s${season}_raw.json`;
   a.click();
 })();
